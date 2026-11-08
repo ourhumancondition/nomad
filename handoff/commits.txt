@@ -1,0 +1,19 @@
+commit cfbd577174e4738f97a4d4e8a9218ac249bc45a6
+Author:     Cursor Agent <cursoragent@cursor.com>
+AuthorDate: Sun Nov 8 19:31:46 2026 +0000
+Commit:     Cursor Agent <cursoragent@cursor.com>
+CommitDate: Sun Nov 8 19:31:46 2026 +0000
+
+    Add the Nomadic Residence Flutter web app.
+    
+    Track calendar-year country presence with separate layover and transit totals, an opt-in example dataset, and a fail-closed PocketBase client that only talks to one allowlisted instance per traveler.
+    
+    Co-authored-by: ourhumancondition <ourhumancondition@gmail.com>
+
+commit c0100dd9453ea82bc0eebce81243e95c7d3d4dee
+Author:     Cursor <noreply@cursor.com>
+AuthorDate: Sun Nov 8 18:40:07 2026 +0000
+Commit:     Cursor <noreply@cursor.com>
+CommitDate: Sun Nov 8 18:40:07 2026 +0000
+
+    Initialize project

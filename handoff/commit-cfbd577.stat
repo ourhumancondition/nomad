@@ -1,0 +1,82 @@
+commit cfbd577174e4738f97a4d4e8a9218ac249bc45a6
+Author:     Cursor Agent <cursoragent@cursor.com>
+AuthorDate: Sun Nov 8 19:31:46 2026 +0000
+Commit:     Cursor Agent <cursoragent@cursor.com>
+CommitDate: Sun Nov 8 19:31:46 2026 +0000
+
+    Add the Nomadic Residence Flutter web app.
+    
+    Track calendar-year country presence with separate layover and transit totals, an opt-in example dataset, and a fail-closed PocketBase client that only talks to one allowlisted instance per traveler.
+    
+    Co-authored-by: ourhumancondition <ourhumancondition@gmail.com>
+
+ .gitignore                                         |  16 +
+ .metadata                                          |  30 ++
+ README.md                                          |  38 +-
+ analysis_options.yaml                              |  12 +
+ docs/ARCHITECTURE.md                               |  34 ++
+ docs/COUNTING.md                                   |  46 ++
+ docs/CSV.md                                        |  23 +
+ docs/DEPLOYMENT.md                                 |  26 ++
+ docs/POCKETHOST.md                                 |  27 ++
+ docs/SECURITY_TESTS.md                             |  19 +
+ docs/SOURCE_CONTROL.md                             |   9 +
+ docs/STATUS.md                                     |  25 +
+ lib/data/countries.dart                            | 261 +++++++++++
+ lib/data/instance_endpoint.dart                    | 112 +++++
+ lib/data/pocketbase_gateway.dart                   | 519 +++++++++++++++++++++
+ lib/demo/example_dataset.dart                      | 275 +++++++++++
+ lib/engine/csv_codec.dart                          | 363 ++++++++++++++
+ lib/engine/day_engine.dart                         | 379 +++++++++++++++
+ lib/engine/flight_proposals.dart                   | 299 ++++++++++++
+ lib/engine/local_date.dart                         | 187 ++++++++
+ lib/engine/models.dart                             | 448 ++++++++++++++++++
+ lib/main.dart                                      |  18 +
+ lib/platform/browser_location.dart                 |   6 +
+ lib/platform/browser_location_stub.dart            |   1 +
+ lib/platform/browser_location_web.dart             |   5 +
+ lib/platform/csv_file.dart                         |   6 +
+ lib/platform/csv_file_stub.dart                    |   5 +
+ lib/platform/csv_file_web.dart                     |  49 ++
+ lib/platform/local_store.dart                      |  14 +
+ lib/platform/local_store_memory.dart               |  16 +
+ lib/platform/local_store_web.dart                  |  20 +
+ lib/platform/url_strategy.dart                     |   5 +
+ lib/platform/url_strategy_stub.dart                |   1 +
+ lib/platform/url_strategy_web.dart                 |   3 +
+ lib/state/app_controller.dart                      | 487 +++++++++++++++++++
+ lib/ui/calendar_page.dart                          | 282 +++++++++++
+ lib/ui/flight_editor.dart                          | 354 ++++++++++++++
+ lib/ui/flights_page.dart                           | 219 +++++++++
+ lib/ui/format.dart                                 |  37 ++
+ lib/ui/gate_page.dart                              | 247 ++++++++++
+ lib/ui/nomadic_app.dart                            | 275 +++++++++++
+ lib/ui/planned_page.dart                           |  77 +++
+ lib/ui/review_page.dart                            | 144 ++++++
+ lib/ui/rules_page.dart                             | 244 ++++++++++
+ lib/ui/stay_editor.dart                            | 284 +++++++++++
+ lib/ui/stays_page.dart                             | 123 +++++
+ lib/ui/summary_page.dart                           | 214 +++++++++
+ lib/ui/theme.dart                                  |  88 ++++
+ lib/ui/transfer_page.dart                          | 137 ++++++
+ .../1794136000_create_travel_collections.js        | 198 ++++++++
+ pubspec.lock                                       | 258 ++++++++++
+ pubspec.yaml                                       |  24 +
+ scripts/vercel_build_web.sh                        |  29 ++
+ test/csv_and_endpoint_test.dart                    |  98 ++++
+ test/day_engine_test.dart                          | 272 +++++++++++
+ test/flight_proposals_test.dart                    | 181 +++++++
+ test/local_date_test.dart                          |  47 ++
+ test/widget_smoke_test.dart                        |  49 ++
+ tool/auth_rules_check.py                           | 403 ++++++++++++++++
+ tool/run_auth_rules.sh                             |   4 +
+ tool/serve_web.py                                  |  36 ++
+ vercel.json                                        |  19 +
+ web/favicon.png                                    | Bin 0 -> 917 bytes
+ web/icons/Icon-192.png                             | Bin 0 -> 5292 bytes
+ web/icons/Icon-512.png                             | Bin 0 -> 8252 bytes
+ web/icons/Icon-maskable-192.png                    | Bin 0 -> 5594 bytes
+ web/icons/Icon-maskable-512.png                    | Bin 0 -> 20998 bytes
+ web/index.html                                     |  46 ++
+ web/manifest.json                                  |  34 ++
+ 69 files changed, 8205 insertions(+), 2 deletions(-)
