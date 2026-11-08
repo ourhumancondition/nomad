@@ -23,7 +23,7 @@ class ReviewPage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Unknown days are not filled. Overlapping wake-up countries are not chosen for you. Excluded records leave those dates unknown unless another countable stay covers them.',
+          'Unknown days are not filled by themselves. Preview days between flights on the Flights page when an arrival and a later departure are the same country. That preview is inferred and stays out of this total until you change the evidence.',
         ),
         const SizedBox(height: 16),
         Text('Unknown', style: Theme.of(context).textTheme.titleMedium),

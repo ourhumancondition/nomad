@@ -35,7 +35,13 @@ class FlightsPage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'A flight is evidence. Proposed days stay inferences until you accept them. Booking-only flights stay out of the actual total until you confirm presence.',
+          'A flight is evidence. Accepting one flight does not fill the days until the next flight. Use the preview when an arrival and a later departure are the same country.',
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          key: const Key('preview-between-flights'),
+          onPressed: () => _previewBetween(context),
+          child: const Text('Preview days between flights'),
         ),
         const SizedBox(height: 12),
         if (flights.isEmpty)
@@ -59,6 +65,55 @@ class FlightsPage extends StatelessWidget {
     );
     if (edited == null || !context.mounted) return;
     final failure = await controller.saveFlight(edited);
+    if (failure != null && context.mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(failure)));
+    }
+  }
+
+  Future<void> _previewBetween(BuildContext context) async {
+    final plan = controller.betweenFlightPlan();
+    final save = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Days between flights'),
+        content: SizedBox(
+          width: 480,
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              const Text(
+                'These stays would be saved as inferences. They are not added to the wake-up total, and a booking-only flight stays booking-only.',
+              ),
+              const SizedBox(height: 12),
+              Text(
+                '${plan.savable.length} stay${plan.savable.length == 1 ? '' : 's'} can be saved.',
+              ),
+              const SizedBox(height: 8),
+              for (final row in plan.rows)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(row.summary),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: plan.savable.isEmpty
+                ? null
+                : () => Navigator.of(context).pop(true),
+            child: const Text('Save inferred stays'),
+          ),
+        ],
+      ),
+    );
+    if (save != true || !context.mounted) return;
+    final failure = await controller.saveBetweenFlightPlan();
     if (failure != null && context.mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(failure)));

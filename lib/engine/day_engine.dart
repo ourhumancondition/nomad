@@ -347,6 +347,31 @@ class DayEngine {
     return end.differenceInDays(start) + 1;
   }
 
+  /// Primary days marked as inference that the actual total does not include.
+  static int inferredPrimaryDays({
+    required List<Stay> stays,
+    required LocalDate? windowStart,
+    required LocalDate? windowEnd,
+    required CountingRules rules,
+    required List<EvidenceStatusDef> statuses,
+  }) {
+    if (windowStart == null || windowEnd == null) return 0;
+    final dates = <LocalDate>{};
+    for (final stay in stays) {
+      if (stay.role != PresenceRole.primary) continue;
+      if (stay.phase != TripPhase.actual) continue;
+      if (!stay.inference.isInference) continue;
+      if (countsAsActual(stay, rules, statuses)) continue;
+      final start = stay.start > windowStart ? stay.start : windowStart;
+      final end = stay.end < windowEnd ? stay.end : windowEnd;
+      if (end < start) continue;
+      for (var date = start; date <= end; date = date.addDays(1)) {
+        dates.add(date);
+      }
+    }
+    return dates.length;
+  }
+
   static List<DateRange> _consecutive(List<LocalDate> dates) {
     if (dates.isEmpty) return const [];
     final ranges = <DateRange>[];

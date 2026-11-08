@@ -4,6 +4,7 @@ import '../data/auth_errors.dart';
 import '../data/instance_endpoint.dart';
 import '../data/pocketbase_gateway.dart';
 import '../demo/example_dataset.dart';
+import '../engine/between_flights.dart';
 import '../engine/csv_codec.dart';
 import '../engine/day_engine.dart';
 import '../engine/flight_proposals.dart';
@@ -59,6 +60,20 @@ class AppController extends ChangeNotifier {
     today: clock(),
     rules: rules,
     statuses: statuses,
+  );
+
+  int get inferredCountryDays => DayEngine.inferredPrimaryDays(
+    stays: stays,
+    windowStart: tally.windowStart,
+    windowEnd: tally.windowEnd,
+    rules: rules,
+    statuses: statuses,
+  );
+
+  BetweenFlightPlan betweenFlightPlan() => planContinuousCountry(
+    flights: flights,
+    existing: stays,
+    rules: rules,
   );
 
   List<int> get years {
@@ -381,6 +396,32 @@ class AppController extends ChangeNotifier {
     return saveFlight(flight.copyWith(reviewState: FlightReviewState.rejected));
   }
 
+  /// Saves inferred between-flight stays. Does not change the counting rule
+  /// and does not rewrite a stay the traveler entered.
+  Future<String?> saveBetweenFlightPlan() async {
+    if (!canEdit) {
+      return 'Open the example dataset or a per-user database before saving.';
+    }
+    final plan = betweenFlightPlan();
+    var saved = 0;
+    for (final stay in plan.savable) {
+      final existing = _stayByExternalId(stay.externalId);
+      if (existing != null && existing.source != RecordSource.flightReview) {
+        continue;
+      }
+      final failure = await saveStay(
+        existing == null ? stay.copyWith(id: '') : stay.copyWith(id: existing.id),
+      );
+      if (failure != null) return failure;
+      saved += 1;
+    }
+    statusMessage = saved == 0
+        ? 'No inferred stays were saved.'
+        : 'Saved $saved inferred stay${saved == 1 ? '' : 's'}. They stay out of the actual total.';
+    notifyListeners();
+    return null;
+  }
+
   Future<String?> saveRules({
     required CountingRules nextRules,
     required List<EvidenceStatusDef> nextStatuses,
@@ -425,6 +466,15 @@ class AppController extends ChangeNotifier {
           ? 'The file has no stay or flight rows.'
           : preview.errors.first;
     }
+    var savedStays = 0;
+    var savedFlights = 0;
+    String stopped(String kind, String externalId, String failure) {
+      final label = externalId.isEmpty ? 'a row with no external id' : externalId;
+      return 'Saved $savedStays of ${preview.stays.length} stays and $savedFlights of ${preview.flights.length} flights. '
+          'Stopped on $kind $label. $failure '
+          'Rows already saved were kept. Importing this file again updates a matching external id and sends the rows that were not saved.';
+    }
+
     for (final stay in preview.stays) {
       final existing = _stayByExternalId(stay.externalId);
       final failure = await saveStay(
@@ -432,7 +482,8 @@ class AppController extends ChangeNotifier {
             ? stay.copyWith(id: '')
             : stay.copyWith(id: existing.id),
       );
-      if (failure != null) return failure;
+      if (failure != null) return stopped('stay', stay.externalId, failure);
+      savedStays += 1;
     }
     for (final flight in preview.flights) {
       final existing = _flightByExternalId(flight.externalId);
@@ -441,7 +492,10 @@ class AppController extends ChangeNotifier {
             ? flight.copyWith(id: '')
             : flight.copyWith(id: existing.id),
       );
-      if (failure != null) return failure;
+      if (failure != null) {
+        return stopped('flight', flight.externalId, failure);
+      }
+      savedFlights += 1;
     }
     statusMessage = preview.exampleDataset
         ? 'Imported rows from a file labeled EXAMPLE DATASET.'
@@ -536,8 +590,12 @@ class AppController extends ChangeNotifier {
         errorMessage = error.message;
         fieldErrors = Map<String, String>.of(error.fields);
         if (error.accountExists) preferSignIn = true;
+      } else if (error is FormatException) {
+        errorMessage = 'A record could not be read. ${error.message}';
+        fieldErrors = {};
       } else {
-        errorMessage = 'The database could not be reached.';
+        errorMessage =
+            'The request did not finish. Later rows were not sent.';
         fieldErrors = {};
       }
       notifyListeners();

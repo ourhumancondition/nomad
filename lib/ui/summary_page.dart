@@ -67,7 +67,14 @@ class SummaryPage extends StatelessWidget {
         if (controller.rules.includeInferred)
           const _Card(
             child: Text(
-              'Records still marked as inference are included because that rule is on.',
+              'Records still marked as inference are included because that rule is on. A stay whose evidence status is Inferred is still left out.',
+            ),
+          ),
+        if (controller.inferredCountryDays > 0)
+          _Card(
+            child: Text(
+              '${controller.inferredCountryDays} inferred country day${controller.inferredCountryDays == 1 ? '' : 's'} are stored and kept out of the wake-up total. Counting inferences does not add them while their evidence status is Inferred.',
+              key: const Key('inferred-total'),
             ),
           ),
         const SizedBox(height: 8),

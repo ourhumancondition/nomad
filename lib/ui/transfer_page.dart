@@ -69,7 +69,7 @@ class _TransferPageState extends State<TransferPage> {
         ),
         const SizedBox(height: 8),
         const Text(
-          'The sheet uses one header. record_type is stay, flight, or meta. Import adds rows and updates a row only when its external id already exists. It does not delete anything.',
+          'The sheet uses one header and includes every year in the file, not only the year on screen. record_type is stay, flight, or meta. Import adds rows and updates a row only when its external id already exists. It does not delete anything.',
         ),
         const SizedBox(height: 12),
         Wrap(
@@ -124,7 +124,9 @@ class _TransferPageState extends State<TransferPage> {
               error,
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
-          const SizedBox(height: 8),
+          const Text(
+            'Import does not accept flight proposals and does not change rows that are absent from the file. If it stops, the message lists what was saved. Importing the same file again continues the rest.',
+          ),
           FilledButton(
             onPressed: preview.hasRows ? _import : null,
             child: const Text('Import valid rows'),

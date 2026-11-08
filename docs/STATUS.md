@@ -22,7 +22,7 @@ Landing this tree re-ran `flutter analyze` (no issues) and `flutter test` (27 pa
 
 `https://nomad.pockethost.io` is PocketBase 0.41.1. The owner imported the merged collections file through the PocketBase UI. An independent comparison of the post-import export passed: the 6 existing collections were unchanged and the 3 new collections were `stays`, `flights`, and `counting_settings`, with zero normalizations. A native backup taken after that import was verified at 3:24:58 PM EST. The earlier backup was kept. This repository does not store backup paths or credentials.
 
-The users collection has one account. This project did not create it. `stays`, `flights`, and `counting_settings` have no records. Signing up, signing in, and saving travel rows on that live database have not been verified. Do not use the PocketBase superuser as the app account.
+The users collection has one account. This project did not create it. The owner later imported 45 travel records through the app, and an export matched that set. A separate 2025 file was then imported with one click. The page reported that the database could not be reached. The in-memory export right after that click contained the original 45 rows plus 47 new rows (36 stays and 11 flights). After reload the server also showed 24 more 2026 stays and the original 16 flights as accepted. Those 24 stays were already visible in the admin before the reload, and the traced session had no Review or Accept click. This repository's import code does not accept flights or create stays that are absent from the file. The trace has no event timestamps, so it does not prove what wrote the extra stays.
 
 ## Deployed
 
