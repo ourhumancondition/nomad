@@ -141,6 +141,8 @@ class _Shell extends StatelessWidget {
         : _Banner(
             text:
                 'Connected to ${controller.instanceOrigin ?? 'the registered database'}${controller.accountEmail == null ? '' : ' as ${controller.accountEmail}'}.',
+            onLeave: controller.signOut,
+            actionLabel: 'Sign out',
           );
     final header = Material(
       color: paper,
@@ -182,6 +184,12 @@ class _Shell extends StatelessWidget {
             ),
           ),
           banner,
+          if (!controller.isExample && controller.notices.isNotEmpty)
+            _Banner(
+              key: const Key('schema-notice'),
+              text: controller.notices.join(' '),
+              tone: _BannerTone.notice,
+            ),
         ],
       ),
     );
@@ -246,28 +254,41 @@ class _Shell extends StatelessWidget {
   }
 }
 
+enum _BannerTone { example, notice }
+
 class _Banner extends StatelessWidget {
-  const _Banner({super.key, required this.text, this.onLeave});
+  const _Banner({
+    super.key,
+    required this.text,
+    this.onLeave,
+    this.actionLabel = 'Leave example',
+    this.tone = _BannerTone.example,
+  });
 
   final String text;
   final VoidCallback? onLeave;
+  final String actionLabel;
+  final _BannerTone tone;
 
   @override
   Widget build(BuildContext context) {
+    final notice = tone == _BannerTone.notice;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF6E7C1),
+        color: notice ? const Color(0xFFE7EEF2) : const Color(0xFFF6E7C1),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2C98A)),
+        border: Border.all(
+          color: notice ? const Color(0xFFB7C9D4) : const Color(0xFFE2C98A),
+        ),
       ),
       child: Row(
         children: [
           Expanded(child: Text(text)),
           if (onLeave != null)
-            TextButton(onPressed: onLeave, child: const Text('Leave example')),
+            TextButton(onPressed: onLeave, child: Text(actionLabel)),
         ],
       ),
     );

@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../data/auth_errors.dart';
 import '../data/instance_endpoint.dart';
 import '../data/pocketbase_gateway.dart';
 import '../demo/example_dataset.dart';
@@ -42,6 +43,9 @@ class AppController extends ChangeNotifier {
   InstanceEndpoint? pendingEndpoint;
   String? statusMessage;
   String? errorMessage;
+  Map<String, String> fieldErrors = {};
+  List<String> notices = [];
+  bool preferSignIn = false;
   bool busy = false;
   int _sequence = 0;
 
@@ -81,6 +85,8 @@ class AppController extends ChangeNotifier {
     year = ExampleDataset.storyYear;
     accountEmail = null;
     pendingEndpoint = null;
+    notices = [];
+    fieldErrors = {};
     errorMessage = null;
     statusMessage = 'Example dataset. These fictional rows stay in this tab and are not sent to PocketBase.';
     notifyListeners();
@@ -107,23 +113,33 @@ class AppController extends ChangeNotifier {
       try {
         InstanceEndpoint.parse(rawUrl, allowLocal: allowLocalEndpoints);
       } on FormatException catch (error) {
-        return error.message;
+        return _localProblem(error.message);
       }
-      return 'That URL is not an allowed database origin.';
+      return _localProblem('That URL is not an allowed database origin.');
     }
     return _guard(() async {
       await gateway.checkHealth(endpoint);
+      gateway.rememberOrigin(endpoint);
       pendingEndpoint = endpoint;
       errorMessage = null;
-      statusMessage =
-          'Health check passed for ${endpoint.displayHost}. Sign in to that database.';
+      fieldErrors = {};
+      statusMessage = null;
     });
   }
 
   Future<String?> signIn(String email, String password) {
     final endpoint = pendingEndpoint;
     if (endpoint == null) {
-      return Future.value('Check the database health before signing in.');
+      return _localProblem('Connect the database before signing in.');
+    }
+    final emailProblem = _emailProblem(email);
+    final passwordProblem = password.isEmpty ? 'Enter a password.' : null;
+    if (emailProblem != null || passwordProblem != null) {
+      return _localProblem(
+        'Sign-in was not accepted. Fix the fields below.',
+        email: emailProblem,
+        password: passwordProblem,
+      );
     }
     return _guard(() async {
       final snapshot = await gateway.signIn(endpoint, email, password);
@@ -131,20 +147,38 @@ class AppController extends ChangeNotifier {
     });
   }
 
-  Future<String?> signUp(String email, String password) {
+  Future<String?> signUp(String email, String password, String confirm) {
     final endpoint = pendingEndpoint;
     if (endpoint == null) {
-      return Future.value(
-        'Check the database health before creating an account.',
-      );
+      return _localProblem('Connect the database before creating an account.');
     }
-    if (password.length < 8) {
-      return Future.value('Use a password of at least 8 characters.');
+    final emailProblem = _emailProblem(email);
+    final passwordProblem = password.length < 8
+        ? 'Use a password of at least 8 characters.'
+        : null;
+    final confirmProblem = password != confirm
+        ? 'Those passwords do not match.'
+        : null;
+    if (emailProblem != null ||
+        passwordProblem != null ||
+        confirmProblem != null) {
+      return _localProblem(
+        'The account was not created. Fix the fields below.',
+        email: emailProblem,
+        password: passwordProblem,
+        confirm: confirmProblem,
+      );
     }
     return _guard(() async {
       final snapshot = await gateway.signUp(endpoint, email, password);
       _applySnapshot(snapshot);
     });
+  }
+
+  void clearAuthProblems() {
+    errorMessage = null;
+    fieldErrors = {};
+    notifyListeners();
   }
 
   Future<void> restoreIfSaved() async {
@@ -178,17 +212,24 @@ class AppController extends ChangeNotifier {
   }
 
   void signOut() {
+    final origin = instanceOrigin ?? gateway.savedOrigin();
     gateway.signOut();
     kind = SessionKind.unconfigured;
     stays = [];
     flights = [];
     accountEmail = null;
     instanceOrigin = null;
-    pendingEndpoint = null;
+    notices = [];
+    fieldErrors = {};
+    errorMessage = null;
+    preferSignIn = true;
+    pendingEndpoint = origin == null
+        ? null
+        : InstanceEndpoint.tryParse(origin, allowLocal: allowLocalEndpoints);
     rules = CountingRules.standard;
     statuses = List<EvidenceStatusDef>.of(defaultEvidenceStatuses);
     year = clock().year;
-    statusMessage = 'Signed out. No travel database is open.';
+    statusMessage = null;
     notifyListeners();
   }
 
@@ -448,14 +489,41 @@ class AppController extends ChangeNotifier {
     instanceOrigin = snapshot.origin;
     year = clock().year;
     errorMessage = null;
+    fieldErrors = {};
+    notices = List<String>.of(snapshot.warnings);
     statusMessage = snapshot.warnings.isEmpty
-        ? 'Connected to ${Uri.parse(snapshot.origin).host} as ${snapshot.email}. This database should hold one traveler.'
+        ? null
         : snapshot.warnings.join(' ');
+  }
+
+  String? _emailProblem(String email) {
+    final trimmed = email.trim();
+    if (trimmed.isEmpty) return 'Enter an email address.';
+    final ok = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(trimmed);
+    if (!ok) return 'Enter a valid email address.';
+    return null;
+  }
+
+  Future<String?> _localProblem(
+    String summary, {
+    String? email,
+    String? password,
+    String? confirm,
+  }) {
+    errorMessage = summary;
+    final next = <String, String>{};
+    if (email != null) next['email'] = email;
+    if (password != null) next['password'] = password;
+    if (confirm != null) next['passwordConfirm'] = confirm;
+    fieldErrors = next;
+    notifyListeners();
+    return Future.value(summary);
   }
 
   Future<String?> _guard(Future<void> Function() action) async {
     busy = true;
     errorMessage = null;
+    fieldErrors = {};
     notifyListeners();
     try {
       await action();
@@ -464,12 +532,16 @@ class AppController extends ChangeNotifier {
       return null;
     } catch (error) {
       busy = false;
-      final message = error is GatewayException
-          ? error.message
-          : 'The database could not be reached.';
-      errorMessage = message;
+      if (error is GatewayException) {
+        errorMessage = error.message;
+        fieldErrors = Map<String, String>.of(error.fields);
+        if (error.accountExists) preferSignIn = true;
+      } else {
+        errorMessage = 'The database could not be reached.';
+        fieldErrors = {};
+      }
       notifyListeners();
-      return message;
+      return errorMessage;
     }
   }
 

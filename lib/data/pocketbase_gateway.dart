@@ -6,19 +6,10 @@ import 'package:pocketbase/pocketbase.dart';
 import '../engine/local_date.dart';
 import '../engine/models.dart';
 import '../platform/local_store.dart';
+import 'auth_errors.dart';
 import 'instance_endpoint.dart';
 
 const instanceOriginKey = 'nomadic.instanceOrigin';
-
-class GatewayException implements Exception {
-  GatewayException(this.message, {this.statusCode});
-
-  final String message;
-  final int? statusCode;
-
-  @override
-  String toString() => message;
-}
 
 class TravelSnapshot {
   const TravelSnapshot({
@@ -89,12 +80,14 @@ class PocketBaseGateway {
     final client = _open(target, initial: store.read(_authKey(target)));
     try {
       await client.collection('users').authWithPassword(email.trim(), password);
-      _adopt(target, client);
-      rememberOrigin(target);
-      return await _load();
+    } on ClientException catch (error) {
+      throw explainAuthFailure(error, creatingAccount: false);
     } catch (error) {
       throw _wrap(error);
     }
+    _adopt(target, client);
+    rememberOrigin(target);
+    return _loadOrWarn(client, target);
   }
 
   Future<TravelSnapshot> signUp(
@@ -113,13 +106,28 @@ class PocketBaseGateway {
               'passwordConfirm': password,
             },
           );
-      await client.collection('users').authWithPassword(email.trim(), password);
-      _adopt(target, client);
-      rememberOrigin(target);
-      return await _load();
+    } on ClientException catch (error) {
+      throw explainAuthFailure(error, creatingAccount: true);
     } catch (error) {
       throw _wrap(error);
     }
+    try {
+      await client.collection('users').authWithPassword(email.trim(), password);
+    } on ClientException catch (error) {
+      throw GatewayException(
+        'Your account was created. Sign in with that email and password.',
+        statusCode: error.statusCode,
+        accountExists: true,
+      );
+    } catch (error) {
+      throw GatewayException(
+        'Your account was created. Sign in with that email and password.',
+        accountExists: true,
+      );
+    }
+    _adopt(target, client);
+    rememberOrigin(target);
+    return _loadOrWarn(client, target);
   }
 
   /// Returns null when the instance is healthy and no usable session exists.
@@ -133,17 +141,14 @@ class PocketBaseGateway {
       return null;
     }
     _adopt(target, client);
-    try {
-      return await _load();
-    } catch (error) {
-      throw _wrap(error);
-    }
+    return _loadOrWarn(client, target);
   }
 
   void signOut() {
+    final current = endpoint;
     _client?.authStore.clear();
     _client = null;
-    forgetOrigin();
+    if (current != null) store.remove(_authKey(current));
     endpoint = null;
   }
 
@@ -262,6 +267,41 @@ class PocketBaseGateway {
       );
     }
     return id;
+  }
+
+  Future<TravelSnapshot> _loadOrWarn(
+    PocketBase client,
+    InstanceEndpoint target,
+  ) async {
+    try {
+      return await _load();
+    } on ClientException catch (error) {
+      if (isMissingTravelTables(error)) {
+        return _emptySnapshot(client, target, missingTravelTablesMessage);
+      }
+      return _emptySnapshot(
+        client,
+        target,
+        'You are signed in. The travel records on this database could not be loaded.',
+      );
+    }
+  }
+
+  TravelSnapshot _emptySnapshot(
+    PocketBase client,
+    InstanceEndpoint target,
+    String warning,
+  ) {
+    final email = client.authStore.record?.get<String>('email', '') ?? '';
+    return TravelSnapshot(
+      email: email,
+      origin: target.origin.toString(),
+      stays: const [],
+      flights: const [],
+      rules: CountingRules.standard,
+      statuses: defaultEvidenceStatuses,
+      warnings: [warning],
+    );
   }
 
   Future<TravelSnapshot> _load() async {

@@ -29,9 +29,14 @@ class InstanceEndpoint {
   }
 
   static InstanceEndpoint parse(String raw, {required bool allowLocal}) {
-    final trimmed = raw.trim();
+    var trimmed = raw.trim();
     if (trimmed.isEmpty) {
       throw const FormatException('Enter the database URL.');
+    }
+    // A bare PocketHost name is the same origin as its https URL.
+    // An explicit http URL is left unchanged and rejected below.
+    if (!trimmed.contains('://')) {
+      trimmed = 'https://$trimmed';
     }
     if (trimmed.contains('@') ||
         trimmed.contains('\\') ||

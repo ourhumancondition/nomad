@@ -118,7 +118,9 @@ migrate(
             {
               name: "wake_hour",
               type: "number",
-              required: true,
+              // PocketBase 0.41 treats 0 as blank when required is true.
+              // Midnight and minute 0 are real wake times. min and max still apply.
+              required: false,
               min: 0,
               max: 23,
               onlyInt: true,
@@ -126,7 +128,7 @@ migrate(
             {
               name: "wake_minute",
               type: "number",
-              required: true,
+              required: false,
               min: 0,
               max: 59,
               onlyInt: true,

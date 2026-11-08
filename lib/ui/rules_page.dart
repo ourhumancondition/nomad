@@ -229,7 +229,7 @@ class _RulesPageState extends State<RulesPage> {
         const SizedBox(height: 24),
         Text(
           widget.controller.isConnected
-              ? 'Connected to ${widget.controller.instanceOrigin}. Sign out from the header when you want this database closed.'
+              ? 'Connected to ${widget.controller.instanceOrigin}.'
               : 'Rules in the example dataset stay in this tab.',
           style: const TextStyle(color: Color(0xFF5C564E)),
         ),

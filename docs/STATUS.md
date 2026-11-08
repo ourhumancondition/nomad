@@ -5,7 +5,7 @@
 - Flutter web UI: year summary, calendar, stays, flight review, unknown and overlap review, planned and future dates, counting rules, CSV import and export.
 - Date engine with leap days, year boundaries, overlaps, layovers, overnight nights, airborne wake-ups, gaps left empty, and future dates excluded.
 - Opt-in fictional example dataset, labeled in the UI and in its CSV export. It is not uploaded.
-- Allowlisted per-instance PocketBase client, manual registration, health check, sign-in and sign-up, no shared-data fallback.
+- Allowlisted per-instance PocketBase client. The first screen connects one database, then offers either creating an account or signing in. There is no shared-data fallback and no administrator login.
 - Additive PocketBase migration for `stays`, `flights`, and `counting_settings`.
 - Vercel static config and Flutter web build script.
 
@@ -20,8 +20,10 @@ Landing this tree re-ran `flutter analyze` (no issues) and `flutter test` (27 pa
 
 ## Connected live
 
-Not connected. `GET https://nomad.pockethost.io/api/health` succeeded. No account was created, no migration was applied there, and no travel record was read or written.
+`https://nomad.pockethost.io` is PocketBase 0.41.1. The owner imported the merged collections file through the PocketBase UI. An independent comparison of the post-import export passed: the 6 existing collections were unchanged and the 3 new collections were `stays`, `flights`, and `counting_settings`, with zero normalizations. A native backup taken after that import was verified at 3:24:58 PM EST. The earlier backup was kept. This repository does not store backup paths or credentials.
+
+The users collection has one account. This project did not create it. `stays`, `flights`, and `counting_settings` have no records. Signing up, signing in, and saving travel rows on that live database have not been verified. Do not use the PocketBase superuser as the app account.
 
 ## Deployed
 
-Not deployed. No Vercel project exists yet for this repository. The static build config is in [DEPLOYMENT.md](DEPLOYMENT.md). Production PocketHost is unchanged: health was the only live check, and no migration, user, or travel row was written there.
+A first Vercel deployment of the earlier commit is at https://nomad-taupe-omega.vercel.app (`dpl_CMX3ZgJYHTAhdibFeCWfVpoSTUYD`). It was labeled production while the pull request was still open. That deployment does not include the later onboarding changes. The static build config is in [DEPLOYMENT.md](DEPLOYMENT.md).

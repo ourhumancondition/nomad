@@ -53,6 +53,14 @@ void main() {
       'https://nomad.pockethost.io',
     );
     expect(
+      parse('nomad.pockethost.io').origin.toString(),
+      'https://nomad.pockethost.io',
+    );
+    expect(
+      parse('NOMAD.pockethost.io/').origin.toString(),
+      'https://nomad.pockethost.io',
+    );
+    expect(
       parse('https://nomad.pockethost.io/').healthUri.toString(),
       'https://nomad.pockethost.io/api/health',
     );
@@ -64,7 +72,6 @@ void main() {
     expect(parse('http://localhost:8090/', allowLocal: true).loopback, isTrue);
 
     final rejected = <String>[
-      'nomad.pockethost.io',
       'http://nomad.pockethost.io',
       'https://nomad.pockethost.io/api',
       'https://nomad.pockethost.io?x=1',
