@@ -1,0 +1,16 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
+.idea/
+.vscode/
+*.iml
+.pockethostconfig
+.phioconfig
+pb_data/
+**/pb_data/
+agent-tools/
+.vercel
+*.log
