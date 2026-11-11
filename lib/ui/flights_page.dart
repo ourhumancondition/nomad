@@ -1,20 +1,43 @@
 import 'package:flutter/material.dart';
 
 import '../data/countries.dart';
+import '../engine/flight_archive.dart';
 import '../engine/flight_proposals.dart';
 import '../engine/models.dart';
 import '../state/app_controller.dart';
 import 'flight_editor.dart';
 import 'format.dart';
 
-class FlightsPage extends StatelessWidget {
+class FlightsPage extends StatefulWidget {
   const FlightsPage({super.key, required this.controller});
 
   final AppController controller;
 
   @override
+  State<FlightsPage> createState() => _FlightsPageState();
+}
+
+class _FlightsPageState extends State<FlightsPage> {
+  final TextEditingController _archiveSearch = TextEditingController();
+  bool _archiveOpen = false;
+
+  @override
+  void dispose() {
+    _archiveSearch.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final flights = [...controller.flights]..sort(compareFlights);
+    final controller = widget.controller;
+    final split = splitFlights(
+      controller.flights,
+      unarchivedIds: controller.unarchivedFlightIds,
+    );
+    final archivedMatches = split.archived
+        .where((flight) => flightMatchesQuery(flight, _archiveSearch.text))
+        .toList();
+    final query = _archiveSearch.text.trim();
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
       children: [
@@ -38,21 +61,131 @@ class FlightsPage extends StatelessWidget {
           'A flight is evidence. Accepting one flight does not fill the days until the next flight. Use the preview when an arrival and a later departure are the same country.',
         ),
         const SizedBox(height: 8),
+        const Text(
+          'Accepted flights sit in the archive so this page stays on what still needs review. Archiving does not change a flight. The preview still uses every flight, including archived ones.',
+        ),
+        const SizedBox(height: 8),
         OutlinedButton(
           key: const Key('preview-between-flights'),
           onPressed: () => _previewBetween(context),
           child: const Text('Preview days between flights'),
         ),
-        const SizedBox(height: 12),
-        if (flights.isEmpty)
+        const SizedBox(height: 16),
+        if (controller.flights.isEmpty)
           const Card(
             child: Padding(
               padding: EdgeInsets.all(16),
               child: Text('No flights yet. Add one, or import a sheet.'),
             ),
+          )
+        else ...[
+          Text(
+            'Still to review (${split.needsReview.length})',
+            style: Theme.of(context).textTheme.titleMedium,
           ),
-        for (final flight in flights)
-          _FlightCard(controller: controller, flight: flight),
+          const SizedBox(height: 8),
+          if (split.needsReview.isEmpty)
+            const Card(
+              child: Padding(
+                padding: EdgeInsets.all(16),
+                child: Text('Nothing is waiting for review.'),
+              ),
+            )
+          else
+            for (final flight in split.needsReview)
+              _FlightCard(
+                controller: controller,
+                flight: flight,
+                onEdit: () => _edit(context, flight),
+              ),
+          if (split.broughtBack.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Back on this list (${split.broughtBack.length})',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'These stay accepted. Archive returns one to the collapsed list without changing it.',
+            ),
+            const SizedBox(height: 8),
+            for (final flight in split.broughtBack)
+              _FlightCard(
+                controller: controller,
+                flight: flight,
+                onEdit: () => _edit(context, flight),
+                onArchive: () => controller.rearchiveFlight(flight.id),
+              ),
+          ],
+          if (split.archived.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Card(
+              child: InkWell(
+                key: const Key('archive-toggle'),
+                onTap: () => setState(() => _archiveOpen = !_archiveOpen),
+                borderRadius: BorderRadius.circular(18),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      Icon(
+                        _archiveOpen ? Icons.expand_less : Icons.expand_more,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Archived (${split.archived.length})',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            const Text(
+                              'Accepted flights. Un-archive shows one here again and leaves its review status accepted.',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (_archiveOpen) ...[
+              const SizedBox(height: 8),
+              TextField(
+                key: const Key('archive-search'),
+                controller: _archiveSearch,
+                decoration: const InputDecoration(
+                  labelText: 'Search archived flights',
+                  hintText: 'Number, airport, country, or date',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+              if (query.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Showing ${archivedMatches.length} of ${split.archived.length}.',
+                ),
+              ],
+              if (archivedMatches.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text('No archived flights match that search.'),
+                ),
+              for (final flight in archivedMatches)
+                _FlightCard(
+                  controller: controller,
+                  flight: flight,
+                  onEdit: () => _edit(context, flight),
+                  onUnarchive: () => controller.unarchiveFlight(flight.id),
+                ),
+            ],
+          ],
+        ],
       ],
     );
   }
@@ -61,10 +194,10 @@ class FlightsPage extends StatelessWidget {
     final edited = await showFlightEditor(
       context,
       existing: flight,
-      statuses: controller.statuses,
+      statuses: widget.controller.statuses,
     );
     if (edited == null || !context.mounted) return;
-    final failure = await controller.saveFlight(edited);
+    final failure = await widget.controller.saveFlight(edited);
     if (failure != null && context.mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(failure)));
@@ -72,15 +205,16 @@ class FlightsPage extends StatelessWidget {
   }
 
   Future<void> _previewBetween(BuildContext context) async {
-    final plan = controller.betweenFlightPlan();
+    final plan = widget.controller.betweenFlightPlan();
     final save = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
+        key: const Key('between-flights-dialog'),
         title: const Text('Days between flights'),
         content: SizedBox(
           width: 480,
+          height: MediaQuery.sizeOf(context).height * 0.55,
           child: ListView(
-            shrinkWrap: true,
             children: [
               const Text(
                 'These stays would be saved as inferences. They are not added to the wake-up total, and a booking-only flight stays booking-only.',
@@ -113,7 +247,7 @@ class FlightsPage extends StatelessWidget {
       ),
     );
     if (save != true || !context.mounted) return;
-    final failure = await controller.saveBetweenFlightPlan();
+    final failure = await widget.controller.saveBetweenFlightPlan();
     if (failure != null && context.mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(failure)));
@@ -122,10 +256,19 @@ class FlightsPage extends StatelessWidget {
 }
 
 class _FlightCard extends StatefulWidget {
-  const _FlightCard({required this.controller, required this.flight});
+  const _FlightCard({
+    required this.controller,
+    required this.flight,
+    required this.onEdit,
+    this.onUnarchive,
+    this.onArchive,
+  });
 
   final AppController controller;
   final FlightRecord flight;
+  final VoidCallback onEdit;
+  final VoidCallback? onUnarchive;
+  final VoidCallback? onArchive;
 
   @override
   State<_FlightCard> createState() => _FlightCardState();
@@ -141,6 +284,7 @@ class _FlightCardState extends State<_FlightCard> {
     final proposals = widget.controller.proposalsFor(flight);
     final booking = flight.evidenceStatus == 'booking_only';
     return Card(
+      key: Key('flight-card-${flight.id}'),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -215,20 +359,42 @@ class _FlightCardState extends State<_FlightCard> {
                 ],
               ),
             ],
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton(
-                onPressed: () async {
-                  final failure = await widget.controller.deleteFlight(
-                    flight.id,
-                  );
-                  if (failure != null && context.mounted) {
-                    ScaffoldMessenger.of(context)
-                        .showSnackBar(SnackBar(content: Text(failure)));
-                  }
-                },
-                child: const Text('Delete flight'),
-              ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (widget.onUnarchive != null)
+                  OutlinedButton(
+                    key: Key('unarchive-${flight.id}'),
+                    onPressed: widget.onUnarchive,
+                    child: const Text('Un-archive'),
+                  ),
+                if (widget.onArchive != null)
+                  OutlinedButton(
+                    key: Key('archive-${flight.id}'),
+                    onPressed: widget.onArchive,
+                    child: const Text('Archive'),
+                  ),
+                OutlinedButton(
+                  key: Key('edit-${flight.id}'),
+                  onPressed: widget.onEdit,
+                  child: const Text('Edit'),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final failure = await widget.controller.deleteFlight(
+                      flight.id,
+                    );
+                    if (failure != null && context.mounted) {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text(failure)));
+                    }
+                  },
+                  child: const Text('Delete flight'),
+                ),
+              ],
             ),
           ],
         ),
