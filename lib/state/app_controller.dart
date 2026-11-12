@@ -39,6 +39,11 @@ class AppController extends ChangeNotifier {
   );
   List<Stay> stays = [];
   List<FlightRecord> flights = [];
+
+  /// Accepted flight ids the traveler pulled back onto the review list.
+  /// Display only: not written to PocketBase and cleared when the session
+  /// data is replaced.
+  final Set<String> _unarchivedFlightIds = <String>{};
   String? accountEmail;
   String? instanceOrigin;
   InstanceEndpoint? pendingEndpoint;
@@ -53,6 +58,23 @@ class AppController extends ChangeNotifier {
   bool get isExample => kind == SessionKind.example;
   bool get isConnected => kind == SessionKind.connected;
   bool get canEdit => kind != SessionKind.unconfigured;
+
+  /// Ids of accepted flights currently shown on the review list.
+  Set<String> get unarchivedFlightIds =>
+      Set<String>.unmodifiable(_unarchivedFlightIds);
+
+  /// Shows an accepted flight on the review list until the page session
+  /// replaces its data. Does not change the flight.
+  void unarchiveFlight(String id) {
+    if (id.isEmpty) return;
+    if (_unarchivedFlightIds.add(id)) notifyListeners();
+  }
+
+  /// Puts a previously un-archived flight back in the archive section.
+  /// Does not change the flight.
+  void rearchiveFlight(String id) {
+    if (_unarchivedFlightIds.remove(id)) notifyListeners();
+  }
 
   YearTally get tally => DayEngine.tally(
     stays: stays,
@@ -70,11 +92,8 @@ class AppController extends ChangeNotifier {
     statuses: statuses,
   );
 
-  BetweenFlightPlan betweenFlightPlan() => planContinuousCountry(
-    flights: flights,
-    existing: stays,
-    rules: rules,
-  );
+  BetweenFlightPlan betweenFlightPlan() =>
+      planContinuousCountry(flights: flights, existing: stays, rules: rules);
 
   List<int> get years {
     final values = <int>{year, clock().year};
@@ -95,6 +114,7 @@ class AppController extends ChangeNotifier {
     kind = SessionKind.example;
     stays = dataset.stays;
     flights = dataset.flights;
+    _unarchivedFlightIds.clear();
     rules = CountingRules.standard;
     statuses = List<EvidenceStatusDef>.of(defaultEvidenceStatuses);
     year = ExampleDataset.storyYear;
@@ -112,6 +132,7 @@ class AppController extends ChangeNotifier {
     kind = SessionKind.unconfigured;
     stays = [];
     flights = [];
+    _unarchivedFlightIds.clear();
     rules = CountingRules.standard;
     statuses = List<EvidenceStatusDef>.of(defaultEvidenceStatuses);
     year = clock().year;
@@ -232,6 +253,7 @@ class AppController extends ChangeNotifier {
     kind = SessionKind.unconfigured;
     stays = [];
     flights = [];
+    _unarchivedFlightIds.clear();
     accountEmail = null;
     instanceOrigin = null;
     notices = [];
@@ -309,11 +331,13 @@ class AppController extends ChangeNotifier {
     }
     if (kind == SessionKind.example) {
       final index = flights.indexWhere((item) => item.id == flight.id);
+      final stored = index >= 0 ? flight : flight.copyWith(id: _id('flight'));
       if (index >= 0) {
-        flights = [...flights]..[index] = flight;
+        flights = [...flights]..[index] = stored;
       } else {
-        flights = [...flights, flight.copyWith(id: _id('flight'))];
+        flights = [...flights, stored];
       }
+      _releaseArchiveOverride(stored);
       notifyListeners();
       return Future.value();
     }
@@ -327,12 +351,14 @@ class AppController extends ChangeNotifier {
       } else {
         flights = [...flights, saved];
       }
+      _releaseArchiveOverride(saved);
     });
   }
 
   Future<String?> deleteFlight(String id) {
     if (kind == SessionKind.example) {
       flights = flights.where((flight) => flight.id != id).toList();
+      _unarchivedFlightIds.remove(id);
       notifyListeners();
       return Future.value();
     }
@@ -340,6 +366,7 @@ class AppController extends ChangeNotifier {
     return _guard(() async {
       await gateway.deleteFlight(id);
       flights = flights.where((flight) => flight.id != id).toList();
+      _unarchivedFlightIds.remove(id);
     });
   }
 
@@ -410,7 +437,9 @@ class AppController extends ChangeNotifier {
         continue;
       }
       final failure = await saveStay(
-        existing == null ? stay.copyWith(id: '') : stay.copyWith(id: existing.id),
+        existing == null
+            ? stay.copyWith(id: '')
+            : stay.copyWith(id: existing.id),
       );
       if (failure != null) return failure;
       saved += 1;
@@ -469,7 +498,9 @@ class AppController extends ChangeNotifier {
     var savedStays = 0;
     var savedFlights = 0;
     String stopped(String kind, String externalId, String failure) {
-      final label = externalId.isEmpty ? 'a row with no external id' : externalId;
+      final label = externalId.isEmpty
+          ? 'a row with no external id'
+          : externalId;
       return 'Saved $savedStays of ${preview.stays.length} stays and $savedFlights of ${preview.flights.length} flights. '
           'Stopped on $kind $label. $failure '
           'Rows already saved were kept. Importing this file again updates a matching external id and sends the rows that were not saved.';
@@ -537,6 +568,7 @@ class AppController extends ChangeNotifier {
     kind = SessionKind.connected;
     stays = snapshot.stays;
     flights = snapshot.flights;
+    _unarchivedFlightIds.clear();
     rules = snapshot.rules;
     statuses = snapshot.statuses;
     accountEmail = snapshot.email;
@@ -594,12 +626,17 @@ class AppController extends ChangeNotifier {
         errorMessage = 'A record could not be read. ${error.message}';
         fieldErrors = {};
       } else {
-        errorMessage =
-            'The request did not finish. Later rows were not sent.';
+        errorMessage = 'The request did not finish. Later rows were not sent.';
         fieldErrors = {};
       }
       notifyListeners();
       return errorMessage;
+    }
+  }
+
+  void _releaseArchiveOverride(FlightRecord flight) {
+    if (flight.reviewState != FlightReviewState.accepted) {
+      _unarchivedFlightIds.remove(flight.id);
     }
   }
 
