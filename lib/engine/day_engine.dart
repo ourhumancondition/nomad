@@ -67,6 +67,9 @@ class AppliedFlightBracket {
     required this.days,
     required this.arrivalNumber,
     required this.departureNumber,
+    this.leftFrom,
+    this.landedOn,
+    this.leftOn,
   });
 
   final String countryCode;
@@ -75,6 +78,15 @@ class AppliedFlightBracket {
   final int days;
   final String arrivalNumber;
   final String departureNumber;
+
+  /// Country the closing flight left, when that is not [countryCode].
+  final String? leftFrom;
+
+  /// Civil arrival date of the opening flight, when this came from flights.
+  final LocalDate? landedOn;
+
+  /// Civil departure date of the closing flight, when this came from flights.
+  final LocalDate? leftOn;
 }
 
 /// Dates a flight bracket would have given to [flightCountry] that a stored
@@ -275,6 +287,19 @@ class DayEngine {
     final interruptions = <TransitInterruption>[];
     for (final bracket in plan.brackets) {
       var end = bracket.end;
+      final leftFrom = bracket.leftFrom;
+      if (leftFrom != null) {
+        final stayed = _earliestPrimaryStay(
+          stays,
+          leftFrom,
+          bracket.start,
+          bracket.end,
+        );
+        if (stayed != null) {
+          final clipped = stayed.addDays(-1);
+          if (clipped < end) end = clipped;
+        }
+      }
       LocalDate? transitOn;
       for (final stay in stays) {
         if (stay.phase != TripPhase.actual) continue;
@@ -285,7 +310,8 @@ class DayEngine {
             : bracket.start;
         if (transitOn == null || overlapStart < transitOn) {
           transitOn = overlapStart;
-          end = overlapStart.addDays(-1);
+          final transitEnd = overlapStart.addDays(-1);
+          if (transitEnd < end) end = transitEnd;
         }
       }
       clips.add(_FlightClip(bracket, end));
@@ -420,6 +446,10 @@ class DayEngine {
             );
             flightLabel =
                 '${clip.bracket.inbound.flightNumber} to ${clip.bracket.outbound.flightNumber}';
+            final leftFrom = clip.bracket.leftFrom;
+            if (leftFrom != null) {
+              flightLabel = '$flightLabel (left from $leftFrom)';
+            }
             clip.counted.add(date);
           } else {
             kind = DayKind.overlap;
@@ -572,6 +602,9 @@ class DayEngine {
             days: range.length,
             arrivalNumber: clip.bracket.inbound.flightNumber,
             departureNumber: clip.bracket.outbound.flightNumber,
+            leftFrom: clip.bracket.leftFrom,
+            landedOn: clip.bracket.inbound.arrive.date,
+            leftOn: clip.bracket.outbound.depart.date,
           ),
         );
       }
@@ -674,6 +707,23 @@ class DayEngine {
       }
     }
     return dates.length;
+  }
+
+  static LocalDate? _earliestPrimaryStay(
+    List<Stay> stays,
+    String country,
+    LocalDate start,
+    LocalDate end,
+  ) {
+    LocalDate? earliest;
+    for (final stay in stays) {
+      if (stay.phase != TripPhase.actual) continue;
+      if (stay.role != PresenceRole.primary) continue;
+      if (stay.countryCode != country) continue;
+      if (stay.end < start || stay.start > end) continue;
+      if (earliest == null || stay.start < earliest) earliest = stay.start;
+    }
+    return earliest;
   }
 
   static bool _otherCountryStay(List<Stay> covering, String country) {

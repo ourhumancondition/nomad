@@ -23,7 +23,7 @@ class ReviewPage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Unknown days have no countable stay and no qualifying flight bracket. A qualifying arrival and the next qualifying departure from the same country are already in the year total. A gap whose countries do not match stays here. Saving the flight preview stores an inferred stay and does not add a second count.',
+          'Unknown days have no countable stay and no qualifying flight bracket. A qualifying arrival and the next qualifying departure are already in the year total, including when that departure leaves a different country. Saving the flight preview stores an inferred stay and does not add a second count.',
         ),
         const SizedBox(height: 16),
         Text('Unknown', style: Theme.of(context).textTheme.titleMedium),

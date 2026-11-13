@@ -139,7 +139,7 @@ void main() {
     expect(tally.identityHolds, isTrue);
   });
 
-  test('a mismatched next country stays unknown and is listed', () {
+  test('a mismatched next country counts as the arrival country', () {
     final tally = count(
       flights: [
         flight(
@@ -160,16 +160,210 @@ void main() {
         ),
       ],
     );
-    expect(tally.primaryCountryDays, 0);
-    expect(tally.flightBracketDayCount, 0);
+    expect(tally.primaryDays['JP'], 19);
+    expect(tally.flightBracketDays['JP'], 19);
+    expect(tally.stayPrimaryDays.containsKey('JP'), isFalse);
     expect(tally.flightGaps.single.kind, FlightGapKind.mismatch);
     expect(tally.flightGaps.single.arrivalCountry, 'JP');
     expect(tally.flightGaps.single.otherCountry, 'US');
-    final gap = tally.days.singleWhere(
+    expect(tally.appliedBrackets.single.leftFrom, 'US');
+    final morning = tally.days.singleWhere(
       (day) => day.date == LocalDate(2025, 5, 2),
     );
-    expect(gap.kind, DayKind.gap);
+    expect(morning.kind, DayKind.primaryCountry);
+    expect(morning.primaryCountry, 'JP');
+    expect(morning.fromFlights, isTrue);
+    expect(morning.flightLabel, contains('left from US'));
+    final after = tally.days.singleWhere(
+      (day) => day.date == LocalDate(2025, 5, 21),
+    );
+    expect(after.kind, DayKind.gap);
     expect(tally.identityHolds, isTrue);
+  });
+
+  test('a stay in the country the flight left from ends that count', () {
+    final tally = count(
+      year: 2026,
+      stays: [stay(country: 'PH', start: '2026-02-10', end: '2026-02-20')],
+      flights: [
+        flight(
+          id: 'in',
+          from: 'TH',
+          to: 'CN',
+          depart: '2026-01-27T22:00',
+          arrive: '2026-01-28T06:00',
+          number: 'TG612',
+        ),
+        flight(
+          id: 'out',
+          from: 'PH',
+          to: 'SG',
+          depart: '2026-03-02T11:00',
+          arrive: '2026-03-02T15:00',
+          number: 'TG621',
+        ),
+      ],
+    );
+    expect(tally.primaryDays['CN'], 13);
+    expect(tally.flightBracketDays['CN'], 13);
+    expect(tally.primaryDays['PH'], 11);
+    expect(tally.stayPrimaryDays['PH'], 11);
+    expect(tally.flightBracketDays.containsKey('PH'), isFalse);
+    final before = tally.days.singleWhere(
+      (day) => day.date == LocalDate(2026, 2, 9),
+    );
+    expect(before.primaryCountry, 'CN');
+    expect(before.fromFlights, isTrue);
+    final stayed = tally.days.singleWhere(
+      (day) => day.date == LocalDate(2026, 2, 10),
+    );
+    expect(stayed.primaryCountry, 'PH');
+    expect(stayed.fromFlights, isFalse);
+    final tail = tally.days.singleWhere(
+      (day) => day.date == LocalDate(2026, 2, 21),
+    );
+    expect(tail.kind, DayKind.gap);
+    expect(tally.identityHolds, isTrue);
+  });
+
+  test('a third-country stay still wins the mornings it covers', () {
+    final tally = count(
+      stays: [stay(country: 'MX', start: '2025-05-10', end: '2025-05-12')],
+      flights: [
+        flight(
+          id: 'in',
+          from: 'MX',
+          to: 'JP',
+          depart: '2025-05-01T08:00',
+          arrive: '2025-05-01T20:00',
+          number: 'NB310',
+        ),
+        flight(
+          id: 'out',
+          from: 'US',
+          to: 'FR',
+          depart: '2025-05-20T09:00',
+          arrive: '2025-05-20T18:00',
+          number: 'NB320',
+        ),
+      ],
+    );
+    expect(tally.primaryDays['JP'], 16);
+    expect(tally.flightBracketDays['JP'], 16);
+    expect(tally.primaryDays['MX'], 3);
+    expect(tally.stayPrimaryDays['MX'], 3);
+    final kept = tally.days.singleWhere(
+      (day) => day.date == LocalDate(2025, 5, 11),
+    );
+    expect(kept.primaryCountry, 'MX');
+    expect(kept.fromFlights, isFalse);
+    final resumed = tally.days.singleWhere(
+      (day) => day.date == LocalDate(2025, 5, 13),
+    );
+    expect(resumed.primaryCountry, 'JP');
+    expect(resumed.fromFlights, isTrue);
+    expect(tally.identityHolds, isTrue);
+  });
+
+  test('a mismatch does not count dates after today', () {
+    final tally = count(
+      year: 2026,
+      asOf: LocalDate(2026, 1, 31),
+      flights: [
+        flight(
+          id: 'in',
+          from: 'TH',
+          to: 'CN',
+          depart: '2026-01-27T22:00',
+          arrive: '2026-01-28T06:00',
+          number: 'TG612',
+        ),
+        flight(
+          id: 'out',
+          from: 'PH',
+          to: 'SG',
+          depart: '2026-03-02T11:00',
+          arrive: '2026-03-02T15:00',
+          number: 'TG621',
+        ),
+      ],
+    );
+    expect(tally.primaryDays['CN'], 4);
+    expect(tally.flightBracketDays['CN'], 4);
+    final later = tally.days.singleWhere(
+      (day) => day.date == LocalDate(2026, 2, 1),
+    );
+    expect(later.kind, DayKind.future);
+    expect(tally.identityHolds, isTrue);
+  });
+
+  test('an unaccepted flight from another country does not close the stay', () {
+    final open = count(
+      year: 2026,
+      flights: [
+        flight(
+          id: 'in',
+          from: 'TH',
+          to: 'CN',
+          depart: '2026-01-27T22:00',
+          arrive: '2026-01-28T06:00',
+          number: 'TG612',
+        ),
+        flight(
+          id: 'booking',
+          from: 'PH',
+          to: 'SG',
+          depart: '2026-03-02T11:00',
+          arrive: '2026-03-02T15:00',
+          number: 'TG621',
+          evidence: 'booking_only',
+          review: FlightReviewState.pending,
+        ),
+      ],
+    );
+    expect(open.primaryDays.containsKey('CN'), isFalse);
+    expect(open.flightBracketDayCount, 0);
+    expect(open.flightGaps, isEmpty);
+
+    final closed = count(
+      year: 2026,
+      flights: [
+        flight(
+          id: 'in',
+          from: 'TH',
+          to: 'CN',
+          depart: '2026-01-27T22:00',
+          arrive: '2026-01-28T06:00',
+          number: 'TG612',
+        ),
+        flight(
+          id: 'booking',
+          from: 'PH',
+          to: 'SG',
+          depart: '2026-03-02T11:00',
+          arrive: '2026-03-02T15:00',
+          number: 'TG621',
+          evidence: 'booking_only',
+          review: FlightReviewState.pending,
+        ),
+        flight(
+          id: 'later',
+          from: 'CN',
+          to: 'JP',
+          depart: '2026-04-01T11:00',
+          arrive: '2026-04-01T18:00',
+          number: 'TG700',
+        ),
+      ],
+    );
+    expect(closed.primaryDays['CN'], 64);
+    expect(closed.appliedBrackets.single.departureNumber, 'TG700');
+    expect(closed.appliedBrackets.single.leftFrom, isNull);
+    expect(
+      closed.flightGaps.where((gap) => gap.kind == FlightGapKind.mismatch),
+      isEmpty,
+    );
+    expect(closed.identityHolds, isTrue);
   });
 
   test('an existing stay of another country wins and is reported', () {
@@ -582,7 +776,21 @@ void main() {
         ),
       ],
     );
-    expect(tally.primaryDays.containsKey('CA'), isFalse);
+    expect(tally.primaryDays['CA'], 13);
+    expect(tally.primaryDays['FR'], 21);
+    expect(
+      tally.appliedBrackets.any(
+        (bracket) =>
+            bracket.countryCode == 'CA' && bracket.departureNumber == 'NB200',
+      ),
+      isFalse,
+    );
+    expect(
+      tally.days
+          .singleWhere((day) => day.date == LocalDate(2025, 9, 1))
+          .primaryCountry,
+      'FR',
+    );
     expect(
       tally.flightGaps.any(
         (gap) =>
@@ -592,6 +800,7 @@ void main() {
       ),
       isTrue,
     );
+    expect(tally.identityHolds, isTrue);
   });
 
   test('an unaccepted booking that does not leave the country is ignored', () {

@@ -259,3 +259,18 @@ String countryLabel(String code) {
   if (name == null) return code;
   return '$name ($code)';
 }
+
+/// English name only, for the home list.
+String countryName(String code) {
+  if (code.isEmpty) return 'In the air';
+  return countryNames[code] ?? code;
+}
+
+/// Regional-indicator flag for an alpha-2 code, or empty when there is none.
+String countryFlag(String code) {
+  if (!RegExp(r'^[A-Z]{2}$').hasMatch(code)) return '';
+  return String.fromCharCodes([
+    0x1F1E6 + code.codeUnitAt(0) - 0x41,
+    0x1F1E6 + code.codeUnitAt(1) - 0x41,
+  ]);
+}
