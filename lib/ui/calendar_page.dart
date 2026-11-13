@@ -106,11 +106,11 @@ class _CalendarPageState extends State<CalendarPage> {
           spacing: 12,
           runSpacing: 8,
           children: [
-            _Legend(color: accent, label: 'Wake-up country'),
-            _Legend(color: transit, label: 'In transit at wake-up'),
+            _Legend(color: accent, label: 'Country'),
+            _Legend(color: transit, label: 'In the air'),
             _Legend(color: Color(0xFFE7E0D6), label: 'Unknown'),
-            _Legend(color: Color(0xFFF3D6C8), label: 'Unresolved overlap'),
-            _Legend(color: layoverAmber, label: 'Layover dot'),
+            _Legend(color: Color(0xFFF3D6C8), label: 'Two countries'),
+            _Legend(color: layoverAmber, label: 'Stopover'),
           ],
         ),
       ],
@@ -119,27 +119,25 @@ class _CalendarPageState extends State<CalendarPage> {
 
   void _show(BuildContext context, DayAssignment day) {
     final kind = switch (day.kind) {
-      DayKind.primaryCountry =>
-        'Wake-up country: ${countryLabel(day.primaryCountry ?? '')}',
-      DayKind.inTransit => 'Wake-up was in transit.',
-      DayKind.gap => 'No countable stay covers this date.',
+      DayKind.primaryCountry => countryName(day.primaryCountry ?? ''),
+      DayKind.inTransit => 'You were in the air when this day started.',
+      DayKind.gap => 'We don\'t know the country for this day.',
       DayKind.overlap =>
-        'Unresolved wake-up countries: ${day.overlapCountries.map(countryLabel).join(', ')}',
-      DayKind.future =>
-        'This date is after today, so it is outside the actual total.',
+        'Two countries: ${day.overlapCountries.map(countryName).join(', ')}. Neither was chosen.',
+      DayKind.future => 'This day is still ahead, so it is not counted yet.',
     };
     final extras = <String>[
       if (day.layoverCountries.isNotEmpty)
-        'Layover, kept separate: ${day.layoverCountries.map(countryLabel).join(', ')}',
+        'Stopover, not an extra day: ${day.layoverCountries.map(countryName).join(', ')}',
       if (day.fromFlights && day.kind == DayKind.primaryCountry)
-        'Counted from flights${day.flightLabel == null ? '' : ' (${day.flightLabel})'}.',
-      if (day.fromFlights && day.kind == DayKind.inTransit) 'In the air at the wake time on a qualifying flight. This day stays in transit.',
-      if (day.overnight)
-        'Overnight night in transit, kept out of the country total.',
+        'Counted from a trip you confirmed${day.flightLabel == null ? '' : ' (${day.flightLabel})'}.',
+      if (day.fromFlights && day.kind == DayKind.inTransit)
+        'You were in the air on a trip you confirmed.',
+      if (day.overnight) 'A night on a plane. Not added to a country.',
       if (day.plannedCountries.isNotEmpty)
-        'Planned: ${day.plannedCountries.map(countryLabel).join(', ')}',
+        'Planned: ${day.plannedCountries.map(countryName).join(', ')}',
       if (day.futureActualCountries.isNotEmpty)
-        'Stored as actual, still in the future: ${day.futureActualCountries.map(countryLabel).join(', ')}',
+        'Saved for later, not counted yet: ${day.futureActualCountries.map(countryName).join(', ')}',
     ];
     showModalBottomSheet<void>(
       context: context,

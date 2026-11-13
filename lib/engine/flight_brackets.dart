@@ -17,6 +17,7 @@ class FlightBracket {
     required this.end,
     required this.inbound,
     required this.outbound,
+    this.leftFrom,
   });
 
   final String countryCode;
@@ -24,6 +25,10 @@ class FlightBracket {
   final LocalDate end;
   final FlightRecord inbound;
   final FlightRecord outbound;
+
+  /// Set when [outbound] leaves a country other than [countryCode].
+  /// The mornings are still counted as [countryCode].
+  final String? leftFrom;
 
   bool covers(LocalDate date) => date >= start && date <= end;
 }
@@ -108,10 +113,9 @@ bool flightQualifiesForBracket(
 ///
 /// A qualifying flight that enters country X is paired with the next
 /// recorded flight that is not a domestic hop inside X.
-/// - That flight leaves X and also qualifies: the wake-ups between them are
-///   a bracket.
-/// - That flight leaves a different country and qualifies: mismatch. The
-///   days stay unknown.
+/// - That flight also qualifies: the wake-ups between them count as X,
+///   including when the flight leaves a different country. That pair is
+///   marked [FlightBracket.leftFrom] and listed as a mismatch.
 /// - That flight does not qualify: the days are not counted. A later
 ///   qualifying flight is not used to skip over it.
 /// Domestic flights inside X do not end the stay. A rejected flight is
@@ -181,7 +185,6 @@ FlightBracketPlan planFlightBrackets({
           reason: 'mismatch',
         ),
       );
-      continue;
     }
     if (!nextQualifies) {
       gaps.add(
@@ -223,6 +226,7 @@ FlightBracketPlan planFlightBrackets({
         end: end,
         inbound: arrival,
         outbound: next,
+        leftFrom: sameCountry ? null : next.fromCountry,
       ),
     );
   }

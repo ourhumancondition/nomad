@@ -3,54 +3,40 @@ import 'package:flutter/material.dart';
 import '../platform/browser_location.dart';
 import '../state/app_controller.dart';
 import 'calendar_page.dart';
+import 'days_page.dart';
 import 'flights_page.dart';
 import 'gate_page.dart';
+import 'missing_page.dart';
 import 'planned_page.dart';
+import 'records_page.dart';
 import 'review_page.dart';
 import 'rules_page.dart';
+import 'section.dart';
 import 'stays_page.dart';
 import 'summary_page.dart';
 import 'theme.dart';
 import 'transfer_page.dart';
+import 'trips_page.dart';
 
-enum Section {
-  summary('/', 'Year', Icons.public),
-  calendar('/calendar', 'Calendar', Icons.calendar_month),
-  stays('/stays', 'Stays', Icons.luggage),
-  flights('/flights', 'Flights', Icons.flight),
-  review('/review', 'Review', Icons.rule),
-  planned('/planned', 'Planned', Icons.event_note),
-  transfer('/transfer', 'Sheet', Icons.table_chart),
-  rules('/rules', 'Rules', Icons.tune);
-
-  const Section(this.path, this.label, this.icon);
-
-  final String path;
-  final String label;
-  final IconData icon;
-
-  static Section fromPath(String path) {
-    final name = path.endsWith('/') && path.length > 1
-        ? path.substring(0, path.length - 1)
-        : path;
-    for (final section in Section.values) {
-      if (section.path == name) return section;
-    }
-    return Section.summary;
-  }
-}
+export 'section.dart';
 
 class NomadicApp extends StatefulWidget {
   const NomadicApp({
     super.key,
     this.controller,
-    this.initialSection = Section.summary,
+    this.initialSection = Section.days,
     this.initialExample = false,
+    this.fontFamily,
+    this.fontFamilyFallback,
   });
 
   final AppController? controller;
   final Section initialSection;
   final bool initialExample;
+
+  /// Optional text face for screenshots. The running app leaves this unset.
+  final String? fontFamily;
+  final List<String>? fontFamilyFallback;
 
   @override
   State<NomadicApp> createState() => _NomadicAppState();
@@ -59,6 +45,7 @@ class NomadicApp extends StatefulWidget {
 class _NomadicAppState extends State<NomadicApp> {
   late final AppController controller;
   late Section section;
+  bool rolling = false;
 
   @override
   void initState() {
@@ -85,12 +72,23 @@ class _NomadicAppState extends State<NomadicApp> {
     replaceBrowserLocation('${next.path}$query');
   }
 
+  ThemeData _theme() {
+    final base = buildTheme();
+    final family = widget.fontFamily;
+    if (family == null) return base;
+    final text = base.textTheme.apply(
+      fontFamily: family,
+      fontFamilyFallback: widget.fontFamilyFallback,
+    );
+    return base.copyWith(textTheme: text, primaryTextTheme: text);
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Nomadic Residence',
       debugShowCheckedModeBanner: false,
-      theme: buildTheme(),
+      theme: _theme(),
       home: AnimatedBuilder(
         animation: controller,
         builder: (context, _) {
@@ -100,7 +98,9 @@ class _NomadicAppState extends State<NomadicApp> {
           return _Shell(
             controller: controller,
             section: section,
+            rolling: rolling,
             onSelect: _go,
+            onRolling: (value) => setState(() => rolling = value),
           );
         },
       ),
@@ -112,19 +112,33 @@ class _Shell extends StatelessWidget {
   const _Shell({
     required this.controller,
     required this.section,
+    required this.rolling,
     required this.onSelect,
+    required this.onRolling,
   });
 
   final AppController controller;
   final Section section;
+  final bool rolling;
   final ValueChanged<Section> onSelect;
+  final ValueChanged<bool> onRolling;
 
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 980;
     final page = switch (section) {
-      Section.summary => SummaryPage(controller: controller),
+      Section.days => DaysPage(
+        controller: controller,
+        rolling: rolling,
+        onRolling: onRolling,
+        onFillUnknown: () => onSelect(Section.missing),
+        onConfirmTrips: () => onSelect(Section.trips),
+      ),
       Section.calendar => CalendarPage(controller: controller),
+      Section.records => RecordsPage(onOpen: onSelect),
+      Section.missing => MissingPage(controller: controller, rolling: rolling),
+      Section.trips => TripsPage(controller: controller, rolling: rolling),
+      Section.summary => SummaryPage(controller: controller),
       Section.stays => StaysPage(controller: controller),
       Section.flights => FlightsPage(controller: controller),
       Section.review => ReviewPage(controller: controller),
@@ -132,18 +146,26 @@ class _Shell extends StatelessWidget {
       Section.transfer => TransferPage(controller: controller),
       Section.rules => RulesPage(controller: controller),
     };
+    final signedIn = controller.accountEmail;
     final banner = controller.isExample
         ? _Banner(
             key: const Key('example-banner'),
-            text: 'Example dataset. Fictional records in this tab. Not connected to PocketBase.',
+            text: 'Practice data. These trips are made up and stay in this browser tab.',
             onLeave: controller.leaveExample,
+            actionLabel: 'Leave practice data',
           )
         : _Banner(
-            text:
-                'Connected to ${controller.instanceOrigin ?? 'the registered database'}${controller.accountEmail == null ? '' : ' as ${controller.accountEmail}'}.',
+            text: signedIn == null || signedIn.isEmpty
+                ? 'Signed in.'
+                : 'Signed in as $signedIn.',
             onLeave: controller.signOut,
             actionLabel: 'Sign out',
           );
+    final showYear =
+        section != Section.days &&
+        section != Section.missing &&
+        section != Section.trips;
+    final back = section.backTo;
     final header = Material(
       color: paper,
       child: Column(
@@ -160,26 +182,37 @@ class _Shell extends StatelessWidget {
                       icon: const Icon(Icons.menu),
                     ),
                   ),
+                if (back != null)
+                  TextButton.icon(
+                    key: const Key('back-to-list'),
+                    onPressed: () => onSelect(back),
+                    icon: const Icon(Icons.arrow_back),
+                    label: Text(back.label),
+                  ),
                 const Expanded(
                   child: Text(
                     'Nomadic Residence',
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
                   ),
                 ),
-                IconButton(
-                  tooltip: 'Previous year',
-                  onPressed: () => controller.setYear(controller.year - 1),
-                  icon: const Icon(Icons.chevron_left),
-                ),
-                Text(
-                  '${controller.year}',
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                IconButton(
-                  tooltip: 'Next year',
-                  onPressed: () => controller.setYear(controller.year + 1),
-                  icon: const Icon(Icons.chevron_right),
-                ),
+                if (showYear) ...[
+                  IconButton(
+                    tooltip: 'Previous year',
+                    onPressed: () => controller.setYear(controller.year - 1),
+                    icon: const Icon(Icons.chevron_left),
+                  ),
+                  Text(
+                    '${controller.year}',
+                    key: const Key('header-year'),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  IconButton(
+                    tooltip: 'Next year',
+                    onPressed: () => controller.setYear(controller.year + 1),
+                    icon: const Icon(Icons.chevron_right),
+                  ),
+                ],
               ],
             ),
           ),
@@ -201,11 +234,13 @@ class _Shell extends StatelessWidget {
                 child: ListView(
                   children: [
                     const ListTile(title: Text('Nomadic Residence')),
-                    for (final item in Section.values)
+                    for (final item in Section.primary)
                       ListTile(
                         leading: Icon(item.icon),
                         title: Text(item.label),
-                        selected: item == section,
+                        selected:
+                            _railIndex(section) ==
+                            Section.primary.indexOf(item),
                         onTap: () {
                           Navigator.of(context).pop();
                           onSelect(item);
@@ -220,12 +255,12 @@ class _Shell extends StatelessWidget {
             ? Row(
                 children: [
                   NavigationRail(
-                    selectedIndex: section.index,
+                    selectedIndex: _railIndex(section),
                     onDestinationSelected: (index) =>
-                        onSelect(Section.values[index]),
+                        onSelect(Section.primary[index]),
                     labelType: NavigationRailLabelType.all,
                     destinations: [
-                      for (final item in Section.values)
+                      for (final item in Section.primary)
                         NavigationRailDestination(
                           icon: Icon(item.icon),
                           label: Text(item.label),
@@ -252,6 +287,16 @@ class _Shell extends StatelessWidget {
       ),
     );
   }
+}
+
+int _railIndex(Section section) {
+  if (section == Section.calendar) {
+    return Section.primary.indexOf(Section.calendar);
+  }
+  if (section.backTo == Section.records || section == Section.records) {
+    return Section.primary.indexOf(Section.records);
+  }
+  return Section.primary.indexOf(Section.days);
 }
 
 enum _BannerTone { example, notice }

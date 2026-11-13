@@ -470,12 +470,14 @@ FlightRecord _flightFrom(Map<String, dynamic> json) {
     }
   } on FormatException {
     warnings.add(
-      'Evidence statuses could not be read. The defaults are in use.',
+      'Saved day settings could not be read. The usual settings are in use.',
     );
   }
   if (statuses.isEmpty) {
     statuses.addAll(defaultEvidenceStatuses);
-    warnings.add('Evidence statuses were empty. The defaults are in use.');
+    warnings.add(
+      'Saved day settings were empty. The usual settings are in use.',
+    );
   }
   return (
     rules: CountingRules(

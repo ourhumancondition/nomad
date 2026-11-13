@@ -23,7 +23,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('example-banner')), findsOneWidget);
-    expect(find.textContaining('Not connected to PocketBase'), findsOneWidget);
+    expect(find.byKey(const Key('days-title')), findsOneWidget);
+    expect(find.textContaining('Practice data'), findsOneWidget);
+    expect(find.textContaining('PocketBase'), findsNothing);
     expect(find.textContaining('Portugal'), findsWidgets);
     expect(controller.isExample, isTrue);
     expect(controller.isConnected, isFalse);
@@ -32,17 +34,21 @@ void main() {
     expect(find.textContaining('183'), findsNothing);
     expect(find.textContaining('not a tax'), findsOneWidget);
 
-    await tester.tap(find.byIcon(Icons.rule));
+    await tester.tap(find.byIcon(Icons.folder_outlined));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-review')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Unknown'), findsWidgets);
     expect(find.textContaining('1 Apr 2026'), findsWidgets);
 
-    await tester.tap(find.byIcon(Icons.tune));
+    await tester.tap(find.byKey(const Key('back-to-list')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('open-rules')));
     await tester.pumpAndSettle();
     expect(find.textContaining('not a legal test'), findsOneWidget);
     expect(find.textContaining('183'), findsNothing);
 
-    await tester.tap(find.text('Leave example'));
+    await tester.tap(find.text('Leave practice data'));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('gate-title')), findsOneWidget);
     expect(find.textContaining('Portugal'), findsNothing);

@@ -221,7 +221,7 @@ const lockedRuleStatements = <String>[
   'A wake-up spent in the air is an in-transit main day.',
   'Two wake-up countries on the same date stay unresolved until you edit one of them.',
   'A date stays unknown when no countable stay and no qualifying flight bracket covers that wake-up.',
-  'Wake-ups between a qualifying arrival into a country and the next qualifying departure from that country count toward that country. Rejected flights, flights that need a manual stay, and booking-only flights that have not been accepted do not form that bracket.',
+  'Wake-ups between a qualifying arrival into a country and the next qualifying departure count toward the arrival country, even when that departure leaves a different country. Rejected flights, flights that need a manual stay, and booking-only flights that have not been accepted do not form that bracket.',
   'A stored stay of a different country is kept on dates it shares with a flight bracket.',
   'Planned trips stay on their own list.',
   'Dates after today stay out of actual totals.',

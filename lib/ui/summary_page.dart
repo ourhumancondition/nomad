@@ -280,19 +280,37 @@ class _FlightSources extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           const Text(
-            'These mornings are in the wake-up total. They sit between a qualifying arrival and the next qualifying departure from the same country. An overnight wake-up in the air stays in transit. A layover stays listed separately. A stored stay of another country is kept.',
+            'These mornings are in the wake-up total. They sit between a qualifying arrival and the next qualifying departure. If that departure leaves another country, the mornings still count as the country you landed in, labeled from flights (left from that country). An overnight wake-up in the air stays in transit. A layover stays listed separately. A stored stay of another country is kept.',
           ),
           if (tally.appliedBrackets.isNotEmpty) ...[
             const SizedBox(height: 8),
             for (final bracket in tally.appliedBrackets)
               Text(
-                '${countryLabel(bracket.countryCode)} · ${shortRange(bracket.start, bracket.end)} · ${bracket.days} day${bracket.days == 1 ? '' : 's'} · ${bracket.arrivalNumber} to ${bracket.departureNumber}',
+                '${countryLabel(bracket.countryCode)} · ${shortRange(bracket.start, bracket.end)} · ${bracket.days} day${bracket.days == 1 ? '' : 's'} · ${bracket.arrivalNumber} to ${bracket.departureNumber}${bracket.leftFrom == null ? '' : ' · from flights (left from ${countryLabel(bracket.leftFrom!)})'}',
                 key: Key(
                   'flight-bracket-${bracket.countryCode}-${bracket.start.iso}',
                 ),
               ),
           ],
-          if (tally.flightGaps.isNotEmpty) ...[
+          if (tally.flightGaps.any(
+            (gap) => gap.kind == FlightGapKind.mismatch,
+          )) ...[
+            const SizedBox(height: 12),
+            for (final gap in tally.flightGaps)
+              if (gap.kind == FlightGapKind.mismatch)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    _gapText(gap),
+                    key: Key(
+                      'flight-${gap.kind.name}-${gap.arrivalNumber}-${gap.otherNumber}',
+                    ),
+                  ),
+                ),
+          ],
+          if (tally.flightGaps.any(
+            (gap) => gap.kind != FlightGapKind.mismatch,
+          )) ...[
             const SizedBox(height: 12),
             const Text(
               'Not counted from flights',
@@ -300,15 +318,16 @@ class _FlightSources extends StatelessWidget {
             ),
             const SizedBox(height: 4),
             for (final gap in tally.flightGaps)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  _gapText(gap),
-                  key: Key(
-                    'flight-${gap.kind.name}-${gap.arrivalNumber}-${gap.otherNumber}',
+              if (gap.kind != FlightGapKind.mismatch)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 6),
+                  child: Text(
+                    _gapText(gap),
+                    key: Key(
+                      'flight-${gap.kind.name}-${gap.arrivalNumber}-${gap.otherNumber}',
+                    ),
                   ),
                 ),
-              ),
           ],
           if (tally.bracketConflicts.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -351,7 +370,7 @@ String _gapText(FlightGap gap) {
   final span = '${shortDate(gap.fromDate)} – ${shortDate(gap.toDate)}';
   switch (gap.kind) {
     case FlightGapKind.mismatch:
-      return '${gap.arrivalNumber} arrives in $arrived and ${gap.otherNumber} leaves $other ($span). Those days stay unknown.';
+      return '${gap.arrivalNumber} arrives in $arrived and ${gap.otherNumber} leaves $other ($span). Those mornings are counted as $arrived, from flights (left from $other).';
     case FlightGapKind.unqualified:
       final why = gap.reason == 'needs_manual'
           ? '${gap.otherNumber} needs a manual stay'

@@ -58,7 +58,7 @@ class _FlightsPageState extends State<FlightsPage> {
         ),
         const SizedBox(height: 8),
         const Text(
-          'A flight is evidence. The year summary counts wake-ups between a qualifying arrival and the next qualifying departure from that same country, and labels them from flights. Accepting one flight still proposes only the immediate connection. This preview can save an inferred stay; that stay does not add a second count.',
+          'A flight is evidence. The year summary counts mornings between a qualifying arrival and the next qualifying departure, and labels them from flights. If that departure leaves a different country, those mornings still count as the country you landed in. Accepting one flight still proposes only the immediate connection. This preview can save an inferred stay; that stay does not add a second count.',
         ),
         const SizedBox(height: 8),
         const Text(

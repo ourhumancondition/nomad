@@ -233,11 +233,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('56 wake-up country days'), findsOneWidget);
+    expect(find.text('70 wake-up country days'), findsOneWidget);
     expect(find.byKey(const Key('source-total')), findsOneWidget);
     expect(
       find.text(
-        '17 from stays · 39 from flights. Both are in this wake-up total.',
+        '17 from stays · 53 from flights. Both are in this wake-up total.',
       ),
       findsOneWidget,
     );
@@ -251,7 +251,11 @@ void main() {
       find.byKey(const Key('flight-mismatch-NB310-NB320')),
       findsOneWidget,
     );
-    expect(find.textContaining('Those days stay unknown.'), findsOneWidget);
+    expect(
+      find.textContaining('from flights (left from United States (US))'),
+      findsWidgets,
+    );
+    expect(find.textContaining('Those days stay unknown.'), findsNothing);
     expect(find.byKey(const Key('flight-conflict-US-MX')), findsOneWidget);
     expect(find.textContaining('The existing stay is kept.'), findsOneWidget);
     expect(
@@ -262,6 +266,8 @@ void main() {
     expect(after.tally.identityHolds, isTrue);
     expect(after.tally.primaryDays['CA'], 34);
     expect(after.tally.flightBracketDays['CA'], 34);
+    expect(after.tally.primaryDays['JP'], 14);
+    expect(after.tally.flightBracketDays['JP'], 14);
     expect(after.tally.primaryDays['US'], 5);
     expect(after.tally.stayPrimaryDays['PT'], 14);
     expect(after.tally.stayPrimaryDays['MX'], 3);
