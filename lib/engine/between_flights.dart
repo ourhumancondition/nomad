@@ -25,7 +25,9 @@ class BetweenFlightPlan {
 }
 
 /// Proposes a continuous country between an arrival and a later departure
-/// from that same country. The result is inferred and does not count.
+/// from that same country. The saved stay is inferred and does not count
+/// by itself. The year summary may still count the same mornings when the
+/// flights qualify as a bracket.
 ///
 /// Civil dates are used as written. No zone is invented. A rejected flight,
 /// a duplicate ticket, a different-country next departure, or an overlap
@@ -37,8 +39,7 @@ BetweenFlightPlan planContinuousCountry({
 }) {
   final rows = <BetweenFlightRow>[
     const BetweenFlightRow(
-      summary:
-          'This preview does not check passenger names. Remove a flight that is not this traveler before saving.',
+      summary: 'This preview does not check passenger names. Remove a flight that is not this traveler before saving.',
     ),
   ];
   final duplicates = _duplicateKeys(flights);
@@ -90,8 +91,7 @@ BetweenFlightPlan planContinuousCountry({
   if (usable.length < 2) {
     rows.add(
       const BetweenFlightRow(
-        summary:
-            'At least two usable flights are needed before days between them can be proposed.',
+        summary: 'At least two usable flights are needed before days between them can be proposed.',
       ),
     );
   }
@@ -139,7 +139,8 @@ BetweenFlightRow _pair({
       ? PresenceRole.layover
       : PresenceRole.primary;
   final externalId = betweenFlightExternalId(inbound, outbound);
-  final booking = inbound.evidenceStatus == 'booking_only' ||
+  final booking =
+      inbound.evidenceStatus == 'booking_only' ||
       outbound.evidenceStatus == 'booking_only';
   final stay = Stay(
     id: 'between-$externalId',
@@ -190,10 +191,10 @@ Set<String> _duplicateKeys(List<FlightRecord> flights) {
     final key = _flightKey(flight);
     counts[key] = (counts[key] ?? 0) + 1;
   }
-    return counts.entries
-        .where((entry) => entry.value > 1)
-        .map((entry) => entry.key)
-        .toSet();
+  return counts.entries
+      .where((entry) => entry.value > 1)
+      .map((entry) => entry.key)
+      .toSet();
 }
 
 String _flightKey(FlightRecord flight) =>

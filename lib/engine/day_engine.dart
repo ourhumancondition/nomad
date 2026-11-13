@@ -1,3 +1,4 @@
+import 'flight_brackets.dart';
 import 'local_date.dart';
 import 'models.dart';
 
@@ -13,6 +14,8 @@ class DayAssignment {
     this.overnight = false,
     this.plannedCountries = const [],
     this.futureActualCountries = const [],
+    this.fromFlights = false,
+    this.flightLabel,
   });
 
   final LocalDate date;
@@ -23,6 +26,13 @@ class DayAssignment {
   final bool overnight;
   final List<String> plannedCountries;
   final List<String> futureActualCountries;
+
+  /// True when this morning was assigned from a qualifying flight rather
+  /// than from a stored stay.
+  final bool fromFlights;
+
+  /// Flight numbers that produced [fromFlights], when there are any.
+  final String? flightLabel;
 }
 
 class ExcludedCoverage {
@@ -30,11 +40,15 @@ class ExcludedCoverage {
     required this.stay,
     required this.reason,
     required this.daysInWindow,
+    this.morningsAlreadyCounted = 0,
   });
 
   final Stay stay;
   final String reason;
   final int daysInWindow;
+
+  /// In-window mornings of this stay that the wake-up total already includes.
+  final int morningsAlreadyCounted;
 }
 
 class OverlapSpan {
@@ -42,6 +56,54 @@ class OverlapSpan {
 
   final DateRange range;
   final List<String> countries;
+}
+
+/// Wake-ups a flight bracket contributed inside the year window.
+class AppliedFlightBracket {
+  const AppliedFlightBracket({
+    required this.countryCode,
+    required this.start,
+    required this.end,
+    required this.days,
+    required this.arrivalNumber,
+    required this.departureNumber,
+  });
+
+  final String countryCode;
+  final LocalDate start;
+  final LocalDate end;
+  final int days;
+  final String arrivalNumber;
+  final String departureNumber;
+}
+
+/// Dates a flight bracket would have given to [flightCountry] that a stored
+/// stay in [stayCountry] kept.
+class BracketConflict {
+  const BracketConflict({
+    required this.flightCountry,
+    required this.stayCountry,
+    required this.range,
+  });
+
+  final String flightCountry;
+  final String stayCountry;
+  final DateRange range;
+}
+
+/// A recorded in-transit wake-up that ends a flight bracket early.
+class TransitInterruption {
+  const TransitInterruption({
+    required this.countryCode,
+    required this.date,
+    required this.arrivalNumber,
+    required this.departureNumber,
+  });
+
+  final String countryCode;
+  final LocalDate date;
+  final String arrivalNumber;
+  final String departureNumber;
 }
 
 class YearTally {
@@ -62,6 +124,13 @@ class YearTally {
     required this.excluded,
     required this.planned,
     required this.futureActual,
+    required this.stayPrimaryDays,
+    required this.flightBracketDays,
+    required this.appliedBrackets,
+    required this.flightGaps,
+    required this.bracketConflicts,
+    required this.transitInterruptions,
+    required this.inferredKeptOutDays,
   });
 
   final int year;
@@ -81,9 +150,29 @@ class YearTally {
   final List<Stay> planned;
   final List<Stay> futureActual;
 
+  /// Wake-up days that came from a stored stay. Part of [primaryDays].
+  final Map<String, int> stayPrimaryDays;
+
+  /// Wake-up days counted from a qualifying flight bracket. Part of [primaryDays].
+  final Map<String, int> flightBracketDays;
+
+  final List<AppliedFlightBracket> appliedBrackets;
+  final List<FlightGap> flightGaps;
+  final List<BracketConflict> bracketConflicts;
+  final List<TransitInterruption> transitInterruptions;
+
+  /// Inferred primary mornings in this window that are not in the wake-up total.
+  final int inferredKeptOutDays;
+
   int get windowLength => windowStart == null || windowEnd == null
       ? 0
       : windowEnd!.differenceInDays(windowStart!) + 1;
+
+  int get flightBracketDayCount =>
+      flightBracketDays.values.fold<int>(0, (sum, value) => sum + value);
+
+  int get stayPrimaryDayCount =>
+      stayPrimaryDays.values.fold<int>(0, (sum, value) => sum + value);
 
   int get primaryCountryDays =>
       primaryDays.values.fold<int>(0, (sum, value) => sum + value);
@@ -145,8 +234,15 @@ class DayEngine {
     return 'This record counts toward actual presence.';
   }
 
+  /// Counts the year window.
+  ///
+  /// Stored stays are applied first. Qualifying flight brackets then fill
+  /// mornings that are still empty, using the wake time and the civil dates
+  /// on the tickets. A stored stay of a different country is left in place.
+  /// [flights] defaults to empty, which keeps a stay-only tally unchanged.
   static YearTally tally({
     required List<Stay> stays,
+    List<FlightRecord> flights = const [],
     required int year,
     required LocalDate today,
     required CountingRules rules,
@@ -164,21 +260,71 @@ class DayEngine {
       windowEnd = today < yearEnd ? today : yearEnd;
     }
 
-    final primaryDays = <String, int>{};
-    final layoverDays = <String, int>{};
-    final assignments = <DayAssignment>[];
-    final gapDates = <LocalDate>[];
-    final overlapGroups = <OverlapSpan>[];
-    var transitWakeDays = 0;
-    var gapCount = 0;
-    var overlapCount = 0;
-    var overnightNights = 0;
-
     bool inWindow(LocalDate date) =>
         windowStart != null &&
         windowEnd != null &&
         date >= windowStart &&
         date <= windowEnd;
+
+    final plan = planFlightBrackets(
+      flights: flights,
+      rules: rules,
+      statuses: statuses,
+    );
+    final clips = <_FlightClip>[];
+    final interruptions = <TransitInterruption>[];
+    for (final bracket in plan.brackets) {
+      var end = bracket.end;
+      LocalDate? transitOn;
+      for (final stay in stays) {
+        if (stay.phase != TripPhase.actual) continue;
+        if (stay.role != PresenceRole.transitWake) continue;
+        if (stay.end < bracket.start || stay.start > bracket.end) continue;
+        final overlapStart = stay.start > bracket.start
+            ? stay.start
+            : bracket.start;
+        if (transitOn == null || overlapStart < transitOn) {
+          transitOn = overlapStart;
+          end = overlapStart.addDays(-1);
+        }
+      }
+      clips.add(_FlightClip(bracket, end));
+      if (transitOn != null && inWindow(transitOn)) {
+        interruptions.add(
+          TransitInterruption(
+            countryCode: bracket.countryCode,
+            date: transitOn,
+            arrivalNumber: bracket.inbound.flightNumber,
+            departureNumber: bracket.outbound.flightNumber,
+          ),
+        );
+      }
+    }
+
+    final primaryDays = <String, int>{};
+    final stayPrimaryDays = <String, int>{};
+    final flightBracketDays = <String, int>{};
+    final layoverDays = <String, int>{};
+    final assignments = <DayAssignment>[];
+    final gapDates = <LocalDate>[];
+    final overlapGroups = <OverlapSpan>[];
+    final conflictBuckets = <String, List<LocalDate>>{};
+    var transitWakeDays = 0;
+    var gapCount = 0;
+    var overlapCount = 0;
+    var overnightNights = 0;
+
+    void noteConflict(
+      String flightCountry,
+      String stayCountry,
+      LocalDate date,
+    ) {
+      if (stayCountry.isEmpty || stayCountry == flightCountry) return;
+      final bucket = conflictBuckets['$flightCountry|$stayCountry'] ??=
+          <LocalDate>[];
+      if (bucket.isNotEmpty && bucket.last == date) return;
+      bucket.add(date);
+    }
 
     for (var date = yearStart; date <= yearEnd; date = date.addDays(1)) {
       final covering = stays.where((stay) => stay.covers(date)).toList();
@@ -231,48 +377,122 @@ class DayEngine {
       final transitWake = countable.any(
         (stay) => stay.role == PresenceRole.transitWake,
       );
+      final hits = <_FlightClip>[
+        for (final clip in clips)
+          if (clip.covers(date)) clip,
+      ];
 
-      late final DayKind kind;
+      var kind = DayKind.gap;
       String? primary;
+      var fromFlights = false;
+      String? flightLabel;
+      var overlapCountries = primaries.length > 1
+          ? List<String>.unmodifiable(primaries)
+          : const <String>[];
+
       if (primaries.length > 1) {
         kind = DayKind.overlap;
-        overlapCount += 1;
       } else if (primaries.length == 1) {
         kind = DayKind.primaryCountry;
         primary = primaries.single;
-        primaryDays[primary] = (primaryDays[primary] ?? 0) + 1;
       } else if (transitWake) {
         kind = DayKind.inTransit;
+      } else {
+        final open = <_FlightClip>[
+          for (final clip in hits)
+            if (!_otherCountryStay(covering, clip.bracket.countryCode)) clip,
+        ];
+        final blocked = hits.isNotEmpty && open.isEmpty;
+        if (!blocked && plan.airborneAt(date)) {
+          kind = DayKind.inTransit;
+          fromFlights = true;
+          flightLabel = 'Airborne at the wake time';
+        } else if (!blocked && open.isNotEmpty) {
+          final countries =
+              open.map((clip) => clip.bracket.countryCode).toSet().toList()
+                ..sort();
+          if (countries.length == 1) {
+            kind = DayKind.primaryCountry;
+            primary = countries.single;
+            fromFlights = true;
+            final clip = open.firstWhere(
+              (item) => item.bracket.countryCode == primary,
+            );
+            flightLabel =
+                '${clip.bracket.inbound.flightNumber} to ${clip.bracket.outbound.flightNumber}';
+            clip.counted.add(date);
+          } else {
+            kind = DayKind.overlap;
+            overlapCountries = List<String>.unmodifiable(countries);
+            fromFlights = true;
+          }
+        }
+      }
+
+      if (kind == DayKind.overlap) {
+        overlapCount += 1;
+        if (overlapGroups.isNotEmpty &&
+            overlapGroups.last.range.end.addDays(1) == date &&
+            _sameCodes(overlapGroups.last.countries, overlapCountries)) {
+          final last = overlapGroups.removeLast();
+          overlapGroups.add(
+            OverlapSpan(
+              range: DateRange(last.range.start, date),
+              countries: overlapCountries,
+            ),
+          );
+        } else {
+          overlapGroups.add(
+            OverlapSpan(
+              range: DateRange(date, date),
+              countries: overlapCountries,
+            ),
+          );
+        }
+      } else if (kind == DayKind.primaryCountry) {
+        final code = primary!;
+        primaryDays[code] = (primaryDays[code] ?? 0) + 1;
+        final source = fromFlights ? flightBracketDays : stayPrimaryDays;
+        source[code] = (source[code] ?? 0) + 1;
+      } else if (kind == DayKind.inTransit) {
         transitWakeDays += 1;
       } else {
-        kind = DayKind.gap;
         gapCount += 1;
         gapDates.add(date);
       }
 
       if (overnight) overnightNights += 1;
-      final primaryCode = primary;
       for (final code in layovers) {
-        if (primaryCode != null && code == primaryCode) continue;
+        if (primary != null && code == primary) continue;
         layoverDays[code] = (layoverDays[code] ?? 0) + 1;
       }
 
-      if (kind == DayKind.overlap) {
-        final countries = List<String>.unmodifiable(primaries);
-        if (overlapGroups.isNotEmpty &&
-            overlapGroups.last.range.end.addDays(1) == date &&
-            _sameCodes(overlapGroups.last.countries, countries)) {
-          final last = overlapGroups.removeLast();
-          overlapGroups.add(
-            OverlapSpan(
-              range: DateRange(last.range.start, date),
-              countries: countries,
-            ),
-          );
-        } else {
-          overlapGroups.add(
-            OverlapSpan(range: DateRange(date, date), countries: countries),
-          );
+      for (final clip in hits) {
+        final flightCountry = clip.bracket.countryCode;
+        if (kind == DayKind.primaryCountry && primary == flightCountry) {
+          continue;
+        }
+        if (kind == DayKind.inTransit && fromFlights) continue;
+        if (kind == DayKind.primaryCountry &&
+            primary != null &&
+            primary != flightCountry) {
+          noteConflict(flightCountry, primary, date);
+          continue;
+        }
+        if (kind == DayKind.overlap && !fromFlights) {
+          for (final code in overlapCountries) {
+            if (code != flightCountry) noteConflict(flightCountry, code, date);
+          }
+          continue;
+        }
+        if (kind == DayKind.overlap) continue;
+        for (final stay in covering) {
+          if (stay.phase != TripPhase.actual) continue;
+          if (stay.role != PresenceRole.primary) continue;
+          if (stay.countryCode.isEmpty || stay.countryCode == flightCountry) {
+            continue;
+          }
+          noteConflict(flightCountry, stay.countryCode, date);
         }
       }
 
@@ -281,29 +501,55 @@ class DayEngine {
           date: date,
           kind: kind,
           primaryCountry: primary,
-          overlapCountries: primaries.length > 1 ? primaries : const [],
+          overlapCountries: overlapCountries,
           layoverCountries: layovers
-              .where((code) => code != primaryCode)
+              .where((code) => code != primary)
               .toList(growable: false),
           overnight: overnight,
+          fromFlights: fromFlights,
+          flightLabel: flightLabel,
         ),
       );
     }
 
+    final byDate = {for (final day in assignments) day.date: day};
     final excluded = <ExcludedCoverage>[];
     for (final stay in stays) {
       if (stay.phase != TripPhase.actual) continue;
       if (countsAsActual(stay, rules, statuses)) continue;
       final days = _daysInside(stay, windowStart, windowEnd);
       if (days == 0) continue;
+      final already = _morningsAlreadyCounted(
+        stay,
+        byDate,
+        windowStart,
+        windowEnd,
+      );
+      var reason = exclusionReason(stay, rules, statuses);
+      if (already > 0 && already == days) {
+        reason = 'These mornings are already in the wake-up total, so this stored record is not added again.';
+      } else if (already > 0) {
+        reason =
+            '$reason $already of these mornings are already in the wake-up total.';
+      }
       excluded.add(
         ExcludedCoverage(
           stay: stay,
-          reason: exclusionReason(stay, rules, statuses),
+          reason: reason,
           daysInWindow: days,
+          morningsAlreadyCounted: already,
         ),
       );
     }
+
+    final inferredKeptOut = _inferredKeptOut(
+      stays: stays,
+      byDate: byDate,
+      windowStart: windowStart,
+      windowEnd: windowEnd,
+      rules: rules,
+      statuses: statuses,
+    );
 
     final planned =
         stays.where((stay) => stay.phase == TripPhase.planned).toList()
@@ -314,6 +560,42 @@ class DayEngine {
           stay.start.year <= year &&
           stay.end.year >= year;
     }).toList()..sort((a, b) => a.start.compareTo(b.start));
+
+    final applied = <AppliedFlightBracket>[];
+    for (final clip in clips) {
+      for (final range in _consecutive(clip.counted)) {
+        applied.add(
+          AppliedFlightBracket(
+            countryCode: clip.bracket.countryCode,
+            start: range.start,
+            end: range.end,
+            days: range.length,
+            arrivalNumber: clip.bracket.inbound.flightNumber,
+            departureNumber: clip.bracket.outbound.flightNumber,
+          ),
+        );
+      }
+    }
+
+    final conflicts = <BracketConflict>[];
+    for (final entry in conflictBuckets.entries) {
+      final parts = entry.key.split('|');
+      for (final range in _consecutive(entry.value)) {
+        conflicts.add(
+          BracketConflict(
+            flightCountry: parts[0],
+            stayCountry: parts[1],
+            range: range,
+          ),
+        );
+      }
+    }
+
+    final gaps = windowStart == null || windowEnd == null
+        ? const <FlightGap>[]
+        : plan.gaps
+              .where((gap) => gap.overlaps(windowStart!, windowEnd!))
+              .toList(growable: false);
 
     return YearTally(
       year: year,
@@ -332,7 +614,76 @@ class DayEngine {
       excluded: excluded,
       planned: planned,
       futureActual: futureActual,
+      stayPrimaryDays: stayPrimaryDays,
+      flightBracketDays: flightBracketDays,
+      appliedBrackets: applied,
+      flightGaps: gaps,
+      bracketConflicts: conflicts,
+      transitInterruptions: interruptions,
+      inferredKeptOutDays: inferredKeptOut,
     );
+  }
+
+  static int _morningsAlreadyCounted(
+    Stay stay,
+    Map<LocalDate, DayAssignment> byDate,
+    LocalDate? windowStart,
+    LocalDate? windowEnd,
+  ) {
+    if (windowStart == null || windowEnd == null) return 0;
+    if (stay.role != PresenceRole.primary || stay.countryCode.isEmpty) {
+      return 0;
+    }
+    final start = stay.start > windowStart ? stay.start : windowStart;
+    final end = stay.end < windowEnd ? stay.end : windowEnd;
+    if (end < start) return 0;
+    var counted = 0;
+    for (var date = start; date <= end; date = date.addDays(1)) {
+      final day = byDate[date];
+      if (day != null &&
+          day.kind == DayKind.primaryCountry &&
+          day.primaryCountry == stay.countryCode) {
+        counted += 1;
+      }
+    }
+    return counted;
+  }
+
+  static int _inferredKeptOut({
+    required List<Stay> stays,
+    required Map<LocalDate, DayAssignment> byDate,
+    required LocalDate? windowStart,
+    required LocalDate? windowEnd,
+    required CountingRules rules,
+    required List<EvidenceStatusDef> statuses,
+  }) {
+    if (windowStart == null || windowEnd == null) return 0;
+    final dates = <LocalDate>{};
+    for (final stay in stays) {
+      if (stay.role != PresenceRole.primary) continue;
+      if (stay.phase != TripPhase.actual) continue;
+      if (!stay.inference.isInference) continue;
+      if (countsAsActual(stay, rules, statuses)) continue;
+      final start = stay.start > windowStart ? stay.start : windowStart;
+      final end = stay.end < windowEnd ? stay.end : windowEnd;
+      if (end < start) continue;
+      for (var date = start; date <= end; date = date.addDays(1)) {
+        final day = byDate[date];
+        if (day != null && day.kind == DayKind.primaryCountry) continue;
+        dates.add(date);
+      }
+    }
+    return dates.length;
+  }
+
+  static bool _otherCountryStay(List<Stay> covering, String country) {
+    for (final stay in covering) {
+      if (stay.phase != TripPhase.actual) continue;
+      if (stay.role != PresenceRole.primary) continue;
+      if (stay.countryCode.isEmpty || stay.countryCode == country) continue;
+      return true;
+    }
+    return false;
   }
 
   static int _daysInside(
@@ -401,4 +752,15 @@ class DayEngine {
     }
     return true;
   }
+}
+
+class _FlightClip {
+  _FlightClip(this.bracket, this.end);
+
+  final FlightBracket bracket;
+  final LocalDate end;
+  final List<LocalDate> counted = [];
+
+  bool covers(LocalDate date) =>
+      end >= bracket.start && date >= bracket.start && date <= end;
 }

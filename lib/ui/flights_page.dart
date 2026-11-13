@@ -58,7 +58,7 @@ class _FlightsPageState extends State<FlightsPage> {
         ),
         const SizedBox(height: 8),
         const Text(
-          'A flight is evidence. Accepting one flight does not fill the days until the next flight. Use the preview when an arrival and a later departure are the same country.',
+          'A flight is evidence. The year summary counts wake-ups between a qualifying arrival and the next qualifying departure from that same country, and labels them from flights. Accepting one flight still proposes only the immediate connection. This preview can save an inferred stay; that stay does not add a second count.',
         ),
         const SizedBox(height: 8),
         const Text(
@@ -217,7 +217,7 @@ class _FlightsPageState extends State<FlightsPage> {
           child: ListView(
             children: [
               const Text(
-                'These stays would be saved as inferences. They are not added to the wake-up total, and a booking-only flight stays booking-only.',
+                'Saving writes inferred stays. An inferred stay is not what the wake-up total uses. Qualifying flights are already counted on the Summary. A booking-only flight that has not been accepted stays booking-only and does not form a bracket.',
               ),
               const SizedBox(height: 12),
               Text(

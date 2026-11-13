@@ -131,6 +131,9 @@ class _CalendarPageState extends State<CalendarPage> {
     final extras = <String>[
       if (day.layoverCountries.isNotEmpty)
         'Layover, kept separate: ${day.layoverCountries.map(countryLabel).join(', ')}',
+      if (day.fromFlights && day.kind == DayKind.primaryCountry)
+        'Counted from flights${day.flightLabel == null ? '' : ' (${day.flightLabel})'}.',
+      if (day.fromFlights && day.kind == DayKind.inTransit) 'In the air at the wake time on a qualifying flight. This day stays in transit.',
       if (day.overnight)
         'Overnight night in transit, kept out of the country total.',
       if (day.plannedCountries.isNotEmpty)

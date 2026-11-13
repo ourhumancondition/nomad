@@ -78,19 +78,17 @@ class AppController extends ChangeNotifier {
 
   YearTally get tally => DayEngine.tally(
     stays: stays,
+    flights: flights,
     year: year,
     today: clock(),
     rules: rules,
     statuses: statuses,
   );
 
-  int get inferredCountryDays => DayEngine.inferredPrimaryDays(
-    stays: stays,
-    windowStart: tally.windowStart,
-    windowEnd: tally.windowEnd,
-    rules: rules,
-    statuses: statuses,
-  );
+  /// Inferred primary mornings in this window that are not already in the
+  /// wake-up total. A morning counted from a qualifying flight bracket is
+  /// not included, even when an inferred stay still covers that date.
+  int get inferredCountryDays => tally.inferredKeptOutDays;
 
   BetweenFlightPlan betweenFlightPlan() =>
       planContinuousCountry(flights: flights, existing: stays, rules: rules);
@@ -446,7 +444,7 @@ class AppController extends ChangeNotifier {
     }
     statusMessage = saved == 0
         ? 'No inferred stays were saved.'
-        : 'Saved $saved inferred stay${saved == 1 ? '' : 's'}. They stay out of the actual total.';
+        : 'Saved $saved inferred stay${saved == 1 ? '' : 's'}. The stay stays inferred. The Summary counts a morning from flights only when a qualifying arrival and departure bracket it.';
     notifyListeners();
     return null;
   }
