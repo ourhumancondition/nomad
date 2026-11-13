@@ -2,7 +2,7 @@
 
 A Flutter web app for counting the countries a frequent traveller is physically in during a calendar year.
 
-Wake-up days, layovers, and nights in the air stay in separate totals. Unknown days stay empty. Planned trips and future dates stay off the actual total. The counts are arithmetic under rules you can edit. They are not tax, immigration, or legal advice.
+Wake-up days, layovers, and nights in the air stay in separate totals. Unknown days stay empty unless a qualifying flight bracket covers them: an accepted or evidence-backed arrival into a country, then the next such departure from that country. Those mornings are in the wake-up total and labeled from flights. Stored inferred stays are not rewritten. Planned trips and future dates stay off the actual total. The counts are arithmetic under rules you can edit. They are not tax, immigration, or legal advice.
 
 ## Run locally
 

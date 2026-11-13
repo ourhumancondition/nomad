@@ -37,7 +37,7 @@ class StaysPage extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'A wake-up stay is the country of that morning. A layover stays beside it. Saving a stay with an evidence status that does not count leaves the days unknown.',
+          'A wake-up stay is the country of that morning. A layover stays beside it. Saving a stay with an evidence status that does not count leaves those days unknown, unless a qualifying flight bracket already counts them.',
         ),
         const SizedBox(height: 12),
         if (rows.isEmpty)
