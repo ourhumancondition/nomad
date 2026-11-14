@@ -6,6 +6,7 @@ import '../engine/models.dart';
 import '../state/app_controller.dart';
 import 'country_presence.dart';
 import 'format.dart';
+import 'gap_facts.dart';
 
 class MissingPage extends StatelessWidget {
   const MissingPage({
@@ -47,51 +48,167 @@ class MissingPage extends StatelessWidget {
         if (presence.unknownRanges.isEmpty)
           const Text('Nothing is missing.')
         else
-          for (final range in presence.unknownRanges)
-            Card(
-              key: Key('missing-${range.start.iso}'),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      shortRange(range.start, range.end),
-                      style: const TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      '${range.length} ${range.length == 1 ? 'day' : 'days'}',
-                    ),
-                    const SizedBox(height: 8),
-                    FilledButton(
-                      key: Key('add-where-${range.start.iso}'),
-                      onPressed: () => _add(context, range),
-                      child: const Text('Add where I was'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          for (final tile in describeUnknownTiles(
+            ranges: presence.unknownRanges,
+            stays: controller.stays,
+            flights: controller.flights,
+            statuses: controller.statuses,
+          ))
+            _GapTile(controller: controller, tile: tile),
       ],
     );
   }
+}
 
-  Future<void> _add(BuildContext context, DateRange range) async {
-    final stay = await showWhereWereYou(
-      context,
-      start: range.start,
-      end: range.end,
+class _GapTile extends StatelessWidget {
+  const _GapTile({required this.controller, required this.tile});
+
+  final AppController controller;
+  final UnknownTile tile;
+
+  @override
+  Widget build(BuildContext context) {
+    final range = tile.range;
+    return Card(
+      key: Key('missing-${range.start.iso}'),
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              shortRange(range.start, range.end),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 4),
+            Text('${range.length} ${range.length == 1 ? 'day' : 'days'}'),
+            if (tile.hint != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                tile.hint!,
+                key: Key('gap-hint-${range.start.iso}'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  height: 1.35,
+                ),
+              ),
+            ],
+            for (final fact in tile.facts) ...[
+              const SizedBox(height: 10),
+              _FactBlock(
+                fact: fact,
+                id: '${fact.heading}-${range.start.iso}-${fact.countryCode}',
+              ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final suggestion in tile.suggestions)
+                  OutlinedButton(
+                    key: Key(
+                      'suggest-${suggestion.countryCode}-${range.start.iso}',
+                    ),
+                    onPressed: () => _add(
+                      context,
+                      controller,
+                      range,
+                      country: suggestion.countryCode,
+                    ),
+                    child: Text(suggestion.label),
+                  ),
+                FilledButton(
+                  key: Key('add-where-${range.start.iso}'),
+                  onPressed: () => _add(context, controller, range),
+                  child: const Text('Add where I was'),
+                ),
+                for (final flight in _flightsToConfirm(tile))
+                  TextButton(
+                    key: Key('confirm-flight-${flight.id}'),
+                    onPressed: () => _confirm(context, controller, flight),
+                    child: Text('Confirm ${flight.flightNumber}'),
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
-    if (stay == null) return;
-    final failure = await controller.saveStay(stay);
-    if (failure != null && context.mounted) {
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(failure)));
-    }
+  }
+}
+
+class _FactBlock extends StatelessWidget {
+  const _FactBlock({required this.fact, required this.id});
+
+  final GapFact fact;
+  final String id;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: Key('gap-fact-$id'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(fact.heading, style: const TextStyle(color: Color(0xFF5C564E))),
+        const SizedBox(height: 2),
+        Text(fact.detail),
+        if (fact.note != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            fact.note!,
+            key: Key('gap-note-$id'),
+            style: const TextStyle(color: Color(0xFF5C564E)),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+List<FlightRecord> _flightsToConfirm(UnknownTile tile) {
+  final flights = <FlightRecord>[];
+  final seen = <String>{};
+  for (final fact in tile.facts) {
+    final flight = fact.flight;
+    if (flight == null || !fact.canConfirm) continue;
+    if (seen.add(flight.id)) flights.add(flight);
+  }
+  return flights;
+}
+
+Future<void> _add(
+  BuildContext context,
+  AppController controller,
+  DateRange range, {
+  String? country,
+}) async {
+  final stay = await showWhereWereYou(
+    context,
+    start: range.start,
+    end: range.end,
+    initialCountry: country,
+  );
+  if (stay == null) return;
+  final failure = await controller.saveStay(stay);
+  if (failure != null && context.mounted) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(failure)));
+  }
+}
+
+Future<void> _confirm(
+  BuildContext context,
+  AppController controller,
+  FlightRecord flight,
+) async {
+  final failure = await controller.saveFlight(
+    flight.copyWith(reviewState: FlightReviewState.accepted),
+  );
+  if (failure != null && context.mounted) {
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(failure)));
   }
 }
 
@@ -99,26 +216,40 @@ Future<Stay?> showWhereWereYou(
   BuildContext context, {
   required LocalDate start,
   required LocalDate end,
+  String? initialCountry,
 }) {
   return showDialog<Stay>(
     context: context,
-    builder: (context) => _WhereDialog(start: start, end: end),
+    builder: (context) =>
+        _WhereDialog(start: start, end: end, initialCountry: initialCountry),
   );
 }
 
 class _WhereDialog extends StatefulWidget {
-  const _WhereDialog({required this.start, required this.end});
+  const _WhereDialog({
+    required this.start,
+    required this.end,
+    this.initialCountry,
+  });
 
   final LocalDate start;
   final LocalDate end;
+  final String? initialCountry;
 
   @override
   State<_WhereDialog> createState() => _WhereDialogState();
 }
 
 class _WhereDialogState extends State<_WhereDialog> {
-  String country = '';
+  late String country;
   String? problem;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initialCountry ?? '';
+    country = RegExp(r'^[A-Z]{2}$').hasMatch(initial) ? initial : '';
+  }
 
   void _save() {
     if (!RegExp(r'^[A-Z]{2}$').hasMatch(country)) {
@@ -159,6 +290,9 @@ class _WhereDialogState extends State<_WhereDialog> {
             Text(shortRange(widget.start, widget.end)),
             const SizedBox(height: 12),
             Autocomplete<String>(
+              initialValue: TextEditingValue(
+                text: country.isEmpty ? '' : countryName(country),
+              ),
               optionsBuilder: (value) {
                 final query = value.text.trim().toLowerCase();
                 if (query.isEmpty) return countryNames.keys.take(8);
@@ -180,7 +314,13 @@ class _WhereDialogState extends State<_WhereDialog> {
                   focusNode: focus,
                   decoration: const InputDecoration(labelText: 'Country'),
                   onChanged: (value) {
-                    final code = value.trim().toUpperCase();
+                    final trimmed = value.trim();
+                    if (country.isNotEmpty &&
+                        trimmed.toLowerCase() ==
+                            countryName(country).toLowerCase()) {
+                      return;
+                    }
+                    final code = trimmed.toUpperCase();
                     if (RegExp(r'^[A-Z]{2}$').hasMatch(code) &&
                         countryNames.containsKey(code)) {
                       country = code;

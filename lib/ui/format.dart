@@ -18,6 +18,9 @@ const _months = <String>[
 String shortDate(LocalDate date) =>
     '${date.day} ${_months[date.month - 1]} ${date.year}';
 
+String shortClock(WallTime time) =>
+    '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
+
 String shortRange(LocalDate start, LocalDate end) =>
     start == end ? shortDate(start) : '${shortDate(start)} – ${shortDate(end)}';
 
