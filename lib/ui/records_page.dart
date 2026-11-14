@@ -41,6 +41,12 @@ class RecordsPage extends StatelessWidget {
           onTap: () => onOpen(Section.planned),
         ),
         _Link(
+          key: const Key('open-gmail'),
+          title: 'Gmail receipts',
+          detail: 'Read flight receipts, then review them before saving.',
+          onTap: () => onOpen(Section.gmail),
+        ),
+        _Link(
           key: const Key('open-sheet'),
           title: 'Spreadsheet',
           detail: 'Import or export a file.',

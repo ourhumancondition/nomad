@@ -32,3 +32,9 @@ PocketHost documents instance creation as a dashboard action ([Creating an Insta
 `pb_migrations/1794136000_create_travel_collections.js` creates `stays`, `flights`, and `counting_settings` only when a collection of that name is absent. It does not alter `users` or any pre-existing collection. The down migration deletes those three collections and must not be run against a database you need to keep.
 
 The migration was applied only to disposable local data directories by `tool/auth_rules_check.py`.
+
+## Gmail
+
+OAuth and Gmail fetches run in Vercel functions under `/api/gmail/`. The refresh token is encrypted there and stored in PocketBase `gmail_links.token_ciphertext`. That collection’s API rules are locked. `pb_hooks/gmail_vault.pb.js` returns the ciphertext only to a caller that presents `NOMAD_VAULT_SECRET`, and only for `e.auth.id`. The Flutter client previews parsed legs and does not receive the refresh token. Receipt bodies are not written to flight rows.
+
+`pb_migrations/1795000000_gmail_import.js` is additive. It was not applied to https://nomad.pockethost.io. Apply steps are in [GMAIL.md](GMAIL.md).

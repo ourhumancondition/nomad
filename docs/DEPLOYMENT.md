@@ -22,7 +22,7 @@ To deploy after the code is on that GitHub repository:
 
 1. In Vercel, create a project from `ourhumancondition/nomad` with the framework preset Other.
 2. Leave the build command as `bash scripts/vercel_build_web.sh` and the output directory as `build/web`, matching `vercel.json`.
-3. Do not add PocketHost superuser credentials as Vercel environment variables. The static site talks to PocketBase from the browser.
+3. Do not add PocketHost superuser credentials as Vercel environment variables. The static site talks to PocketBase from the browser. Gmail uses a separate set of variables, documented in [GMAIL.md](GMAIL.md): the Google OAuth client id and secret, `GMAIL_TOKEN_KEY`, and `NOMAD_VAULT_SECRET`. Those are not the PocketBase superuser password. `/api/gmail/*` is served by Node functions and is excluded from the Flutter rewrite.
 4. After the first deployment, add that origin to the PocketHost instance’s CORS Origins.
 
 A local check of the release build is `python3 tool/serve_web.py --port 43123`.

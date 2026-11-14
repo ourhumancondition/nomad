@@ -4,3 +4,6 @@ import 'browser_location_stub.dart'
 
 void replaceBrowserLocation(String location) =>
     impl.replaceBrowserLocation(location);
+
+void assignBrowserLocation(String location) =>
+    impl.assignBrowserLocation(location);

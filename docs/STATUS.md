@@ -24,6 +24,19 @@ Landing this tree re-ran `flutter analyze` (no issues) and `flutter test` (27 pa
 
 The users collection has one account. This project did not create it. The owner later imported 45 travel records through the app, and an export matched that set. A separate 2025 file was then imported with one click. The page reported that the database could not be reached. The in-memory export right after that click contained the original 45 rows plus 47 new rows (36 stays and 11 flights). After reload the server also showed 24 more 2026 stays and the original 16 flights as accepted. Those 24 stays were already visible in the admin before the reload, and the traced session had no Review or Accept click. This repository's import code does not accept flights or create stays that are absent from the file. The trace has no event timestamps, so it does not prove what wrote the extra stays.
 
+## Gmail receipts
+
+The Gmail page, parser, Vercel broker, and PocketBase vault are in the tree. Bookings stay `booking_only` and `pending` until the traveler accepts a flight. The receipt body is not stored. Tokens stay in an encrypted field that the records API cannot list.
+
+Verified locally on 14 Nov 2026, without a Google OAuth client and without calling https://nomad.pockethost.io:
+
+- `flutter analyze`: no issues.
+- `flutter test`: 101 passed, 2 skipped. The skips are the older PocketBase 0.41.1 checks; that binary is not on the machine.
+- `node --test gmail_broker/broker.test.js`: 7 passed. Covers scope refusal, revoked scans that do not call Gmail, and scan responses that omit the refresh token.
+- `python3 tool/gmail_rules_check.py`: a disposable PocketBase 0.40.6 process. Wrong vault secret is 403. `gmail_links` list is 403. User B does not receive user A’s ciphertext. A replayed connection attempt is refused. Disconnect clears the ciphertext. GitHub’s public releases did not include a 0.41.1 asset that day; the live instance reports 0.41.1. The migration was not applied there.
+
+The live Google consent screen and a real mailbox scan were not run. Setup is in [GMAIL.md](GMAIL.md).
+
 ## Deployed
 
 A first Vercel deployment of the earlier commit is at https://nomad-taupe-omega.vercel.app (`dpl_CMX3ZgJYHTAhdibFeCWfVpoSTUYD`). It was labeled production while the pull request was still open. That deployment does not include the later onboarding changes. The static build config is in [DEPLOYMENT.md](DEPLOYMENT.md).

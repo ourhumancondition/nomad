@@ -5,8 +5,13 @@
   "buildCommand": "bash scripts/vercel_build_web.sh",
   "outputDirectory": "build/web",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
+  "functions": {
+    "api/gmail/*.js": {
+      "maxDuration": 30
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",
