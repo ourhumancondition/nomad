@@ -54,7 +54,7 @@ void main() {
     expect(find.textContaining('Portugal'), findsNothing);
   });
 
-  testWidgets('a connected database shows one account action at a time', (
+  testWidgets('sign-up is a separate page and the server stays hidden', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(390, 844);
@@ -62,30 +62,34 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
     final controller = AppController(clock: () => LocalDate(2026, 11, 8));
-    controller.pendingEndpoint = InstanceEndpoint.parse(
-      'nomad.pockethost.io',
-      allowLocal: false,
-    );
     await tester.pumpWidget(NomadicApp(controller: controller));
 
-    expect(find.byKey(const Key('connected-host')), findsOneWidget);
-    expect(find.text('nomad.pockethost.io'), findsWidgets);
-    expect(find.byKey(const Key('account-create-mode')), findsOneWidget);
-    expect(find.byKey(const Key('auth-confirm')), findsOneWidget);
-    expect(find.text('Create account'), findsOneWidget);
-    expect(find.text('Sign in'), findsNothing);
+    expect(find.byKey(const Key('gate-title')), findsOneWidget);
+    expect(find.text('Sign in'), findsWidgets);
+    expect(find.text('I am new'), findsNothing);
+    expect(find.text('I have an account'), findsNothing);
+    expect(find.byKey(const Key('instance-url')), findsNothing);
     expect(find.textContaining('administrator'), findsNothing);
     expect(find.textContaining('superuser'), findsNothing);
 
-    await tester.tap(find.text('I have an account'));
+    await tester.tap(find.byKey(const Key('change-server')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('account-signin-mode')), findsOneWidget);
-    expect(find.byKey(const Key('auth-confirm')), findsNothing);
-    expect(find.text('Sign in'), findsWidgets);
-    expect(find.text('Create account'), findsNothing);
+    expect(find.byKey(const Key('instance-url')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('instance-url')))
+          .controller
+          ?.text,
+      defaultInstanceUrl,
+    );
 
-    await tester.tap(find.text('I am new'));
+    await tester.tap(find.byKey(const Key('go-to-signup')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const Key('signup-title')), findsOneWidget);
+    expect(find.byKey(const Key('auth-confirm')), findsOneWidget);
+    expect(find.text('Create account'), findsOneWidget);
+    expect(find.text('I am new'), findsNothing);
+
     await tester.enterText(find.byKey(const Key('auth-email')), 'not-an-email');
     await tester.enterText(find.byKey(const Key('auth-password')), 'short');
     await tester.enterText(find.byKey(const Key('auth-confirm')), 'other');
@@ -98,5 +102,10 @@ void main() {
     expect(find.text('Those passwords do not match.'), findsOneWidget);
     expect(find.textContaining('Failed to create record'), findsNothing);
     expect(controller.isConnected, isFalse);
+
+    await tester.tap(find.byKey(const Key('go-to-login')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('gate-title')), findsOneWidget);
+    expect(find.byKey(const Key('auth-confirm')), findsNothing);
   });
 }

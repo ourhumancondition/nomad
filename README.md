@@ -16,7 +16,7 @@ flutter build web --release --base-href /
 python3 tool/serve_web.py --port 43123
 ```
 
-Open http://127.0.0.1:43123 . The first screen does not load travel records. **Review the example dataset** keeps fictional rows in the browser tab. It does not call PocketBase.
+Open http://127.0.0.1:43123 . The first screen is sign-in. It does not load travel records until a saved session is restored. **Look at a made-up example** keeps fictional rows in the browser tab. It does not call PocketBase.
 
 `flutter run -d web-server --web-hostname 127.0.0.1 --web-port 43123` is the debug server. Debug builds may register a loopback PocketBase. Release builds, including the Vercel build, do not.
 
@@ -24,7 +24,7 @@ Open http://127.0.0.1:43123 . The first screen does not load travel records. **R
 
 Each traveler uses their own PocketBase instance and therefore their own SQLite file. Register that instance in the app after its `/api/health` check succeeds, then sign in on that instance.
 
-https://nomad.pockethost.io is one instance. Pointing two travelers at it would put both of them in the same database. The app does not do that by default.
+Sign-in uses https://nomad.pockethost.io unless the server is changed. That address is one database. Another traveler needs a different server.
 
 Setup, the provisioning blocker, and the local auth tests are in [docs/POCKETHOST.md](docs/POCKETHOST.md) and [docs/SECURITY_TESTS.md](docs/SECURITY_TESTS.md).
 

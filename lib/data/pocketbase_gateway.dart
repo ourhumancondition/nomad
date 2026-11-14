@@ -11,6 +11,9 @@ import 'instance_endpoint.dart';
 
 const instanceOriginKey = 'nomadic.instanceOrigin';
 
+/// Last email typed on a successful sign-in. Never a password.
+const lastEmailKey = 'nomadic.lastEmail';
+
 class TravelSnapshot {
   const TravelSnapshot({
     required this.email,
@@ -44,8 +47,21 @@ class PocketBaseGateway {
 
   String? savedOrigin() => store.read(instanceOriginKey);
 
+  String? savedEmail() => store.read(lastEmailKey);
+
   void rememberOrigin(InstanceEndpoint value) {
     store.write(instanceOriginKey, value.origin.toString());
+  }
+
+  void rememberEmail(String email) {
+    final trimmed = email.trim();
+    if (trimmed.isEmpty) return;
+    store.write(lastEmailKey, trimmed);
+  }
+
+  bool hasSavedSession(InstanceEndpoint target) {
+    final saved = store.read(_authKey(target));
+    return saved != null && saved.isNotEmpty;
   }
 
   void forgetOrigin() {

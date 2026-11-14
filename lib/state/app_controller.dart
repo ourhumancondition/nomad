@@ -53,6 +53,9 @@ class AppController extends ChangeNotifier {
   List<String> notices = [];
   bool preferSignIn = false;
   bool busy = false;
+
+  /// True while a saved session is being opened. The login form stays hidden.
+  bool restoring = false;
   int _sequence = 0;
 
   bool get isExample => kind == SessionKind.example;
@@ -162,10 +165,6 @@ class AppController extends ChangeNotifier {
   }
 
   Future<String?> signIn(String email, String password) {
-    final endpoint = pendingEndpoint;
-    if (endpoint == null) {
-      return _localProblem('Connect the database before signing in.');
-    }
     final emailProblem = _emailProblem(email);
     final passwordProblem = password.isEmpty ? 'Enter a password.' : null;
     if (emailProblem != null || passwordProblem != null) {
@@ -175,17 +174,18 @@ class AppController extends ChangeNotifier {
         password: passwordProblem,
       );
     }
+    final endpoint = pendingEndpoint;
+    if (endpoint == null) {
+      return _localProblem('Choose a server before signing in.');
+    }
     return _guard(() async {
       final snapshot = await gateway.signIn(endpoint, email, password);
+      gateway.rememberEmail(email);
       _applySnapshot(snapshot);
     });
   }
 
   Future<String?> signUp(String email, String password, String confirm) {
-    final endpoint = pendingEndpoint;
-    if (endpoint == null) {
-      return _localProblem('Connect the database before creating an account.');
-    }
     final emailProblem = _emailProblem(email);
     final passwordProblem = password.length < 8
         ? 'Use a password of at least 8 characters.'
@@ -203,10 +203,39 @@ class AppController extends ChangeNotifier {
         confirm: confirmProblem,
       );
     }
+    final endpoint = pendingEndpoint;
+    if (endpoint == null) {
+      return _localProblem('Choose a server before creating an account.');
+    }
     return _guard(() async {
       final snapshot = await gateway.signUp(endpoint, email, password);
+      gateway.rememberEmail(email);
       _applySnapshot(snapshot);
     });
+  }
+
+  /// Remembers [raw] as the server and selects it. Does not sign in.
+  String? useServer(String raw) {
+    final endpoint = InstanceEndpoint.tryParse(
+      raw,
+      allowLocal: allowLocalEndpoints,
+    );
+    if (endpoint == null) {
+      String message = 'That server address is not one this app can use.';
+      try {
+        InstanceEndpoint.parse(raw, allowLocal: allowLocalEndpoints);
+      } on FormatException catch (error) {
+        message = error.message;
+      }
+      errorMessage = message;
+      notifyListeners();
+      return message;
+    }
+    pendingEndpoint = endpoint;
+    gateway.rememberOrigin(endpoint);
+    errorMessage = null;
+    notifyListeners();
+    return null;
   }
 
   void clearAuthProblems() {
@@ -216,33 +245,44 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> restoreIfSaved() async {
-    final raw = gateway.savedOrigin();
-    if (raw == null || raw.isEmpty || kind == SessionKind.example) return;
+    if (kind == SessionKind.example) return;
+    var raw = gateway.savedOrigin();
+    if (raw == null || raw.isEmpty) {
+      gateway.rememberOrigin(
+        InstanceEndpoint.parse(defaultInstanceUrl, allowLocal: false),
+      );
+      raw = gateway.savedOrigin();
+    }
     final endpoint = InstanceEndpoint.tryParse(
-      raw,
+      raw ?? '',
       allowLocal: allowLocalEndpoints,
     );
     if (endpoint == null) {
       gateway.forgetOrigin();
       errorMessage =
-          'The saved database URL is not allowlisted, so it was forgotten.';
+          'The saved server address cannot be used, so it was forgotten.';
       notifyListeners();
       return;
     }
+    if (!gateway.hasSavedSession(endpoint)) {
+      pendingEndpoint = endpoint;
+      return;
+    }
+    restoring = true;
+    notifyListeners();
     final failure = await _guard(() async {
       final snapshot = await gateway.restore(endpoint);
       if (snapshot == null) {
         pendingEndpoint = endpoint;
-        statusMessage =
-            '${endpoint.displayHost} is healthy. Sign in to open that database.';
         return;
       }
       _applySnapshot(snapshot);
     });
+    restoring = false;
     if (failure != null) {
       errorMessage = failure;
-      notifyListeners();
     }
+    notifyListeners();
   }
 
   void signOut() {
