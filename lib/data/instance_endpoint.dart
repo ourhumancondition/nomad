@@ -1,3 +1,6 @@
+/// The server this deployment signs in to unless someone changes it.
+const defaultInstanceUrl = 'https://nomad.pockethost.io';
+
 /// An allowlisted PocketBase origin.
 ///
 /// The app talks to that origin directly from the browser. There is no proxy,

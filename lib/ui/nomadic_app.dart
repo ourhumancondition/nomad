@@ -5,13 +5,15 @@ import '../state/app_controller.dart';
 import 'calendar_page.dart';
 import 'days_page.dart';
 import 'flights_page.dart';
-import 'gate_page.dart';
+import 'login_page.dart';
 import 'missing_page.dart';
+import 'opening_page.dart';
 import 'planned_page.dart';
 import 'records_page.dart';
 import 'review_page.dart';
 import 'rules_page.dart';
 import 'section.dart';
+import 'signup_page.dart';
 import 'stays_page.dart';
 import 'summary_page.dart';
 import 'theme.dart';
@@ -26,6 +28,7 @@ class NomadicApp extends StatefulWidget {
     this.controller,
     this.initialSection = Section.days,
     this.initialExample = false,
+    this.initialSignUp = false,
     this.fontFamily,
     this.fontFamilyFallback,
   });
@@ -33,6 +36,7 @@ class NomadicApp extends StatefulWidget {
   final AppController? controller;
   final Section initialSection;
   final bool initialExample;
+  final bool initialSignUp;
 
   /// Optional text face for screenshots. The running app leaves this unset.
   final String? fontFamily;
@@ -45,6 +49,7 @@ class NomadicApp extends StatefulWidget {
 class _NomadicAppState extends State<NomadicApp> {
   late final AppController controller;
   late Section section;
+  late bool signingUp;
   bool rolling = false;
 
   @override
@@ -52,6 +57,7 @@ class _NomadicAppState extends State<NomadicApp> {
     super.initState();
     controller = widget.controller ?? AppController();
     section = widget.initialSection;
+    signingUp = widget.initialSignUp;
     if (widget.initialExample && controller.kind == SessionKind.unconfigured) {
       controller.openExample();
     }
@@ -93,7 +99,25 @@ class _NomadicAppState extends State<NomadicApp> {
         animation: controller,
         builder: (context, _) {
           if (!controller.canEdit) {
-            return GatePage(controller: controller);
+            if (controller.restoring) return const OpeningPage();
+            if (signingUp) {
+              return SignupPage(
+                controller: controller,
+                onSignIn: () {
+                  controller.clearAuthProblems();
+                  setState(() => signingUp = false);
+                  replaceBrowserLocation('/');
+                },
+              );
+            }
+            return LoginPage(
+              controller: controller,
+              onSignUp: () {
+                controller.clearAuthProblems();
+                setState(() => signingUp = true);
+                replaceBrowserLocation('/signup');
+              },
+            );
           }
           return _Shell(
             controller: controller,
