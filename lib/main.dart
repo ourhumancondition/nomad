@@ -14,9 +14,12 @@ void main() {
       : uri.path;
   runApp(
     NomadicApp(
-      initialSection: Section.fromPath(uri.path),
+      initialSection: uri.queryParameters.containsKey('gmail')
+          ? Section.gmail
+          : Section.fromPath(uri.path),
       initialExample: uri.queryParameters['example'] == '1',
       initialSignUp: path == '/signup',
+      initialGmailResult: uri.queryParameters['gmail'],
     ),
   );
 }

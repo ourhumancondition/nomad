@@ -275,6 +275,24 @@ class PocketBaseGateway {
     return client;
   }
 
+  /// The signed-in user id, or null when no session is open.
+  /// This is not a token.
+  String? currentUserId() {
+    final client = _client;
+    if (client == null || !client.authStore.isValid) return null;
+    final id = client.authStore.record?.id ?? '';
+    return id.isEmpty ? null : id;
+  }
+
+  /// The PocketBase auth token for the open session.
+  /// Callers send it to the Gmail broker and must not write it to logs.
+  String? currentAuthToken() {
+    final client = _client;
+    if (client == null || !client.authStore.isValid) return null;
+    final token = client.authStore.token;
+    return token.isEmpty ? null : token;
+  }
+
   String _userId(PocketBase client) {
     final id = client.authStore.record?.id ?? '';
     if (id.isEmpty) {
@@ -392,23 +410,37 @@ Map<String, Object> _stayBody(Stay stay, String userId) => {
   'source': stay.source.wire,
 };
 
-Map<String, Object> _flightBody(FlightRecord flight, String userId) => {
-  'user': userId,
-  'flight_number': flight.flightNumber,
-  'from_iata': flight.fromIata,
-  'to_iata': flight.toIata,
-  'from_country': flight.fromCountry,
-  'to_country': flight.toCountry,
-  'depart_local': flight.depart.iso,
-  'arrive_local': flight.arrive.iso,
-  'depart_timezone': flight.departTimezone,
-  'arrive_timezone': flight.arriveTimezone,
-  'evidence_status': flight.evidenceStatus,
-  'inference': flight.inference.wire,
-  'review_state': flight.reviewState.wire,
-  'notes': flight.notes,
-  'external_id': flight.externalId,
-};
+Map<String, Object> _flightBody(FlightRecord flight, String userId) {
+  final body = <String, Object>{
+    'user': userId,
+    'flight_number': flight.flightNumber,
+    'from_iata': flight.fromIata,
+    'to_iata': flight.toIata,
+    'from_country': flight.fromCountry,
+    'to_country': flight.toCountry,
+    'depart_local': flight.depart.iso,
+    'arrive_local': flight.arrive.iso,
+    'depart_timezone': flight.departTimezone,
+    'arrive_timezone': flight.arriveTimezone,
+    'evidence_status': flight.evidenceStatus,
+    'inference': flight.inference.wire,
+    'review_state': flight.reviewState.wire,
+    'notes': flight.notes,
+    'external_id': flight.externalId,
+  };
+  _putProvenance(body, 'gmail_message_id', flight.gmailMessageId);
+  _putProvenance(body, 'gmail_from', flight.gmailFrom);
+  _putProvenance(body, 'gmail_date', flight.gmailDate);
+  _putProvenance(body, 'itinerary_ref', flight.itineraryRef);
+  _putProvenance(body, 'passenger_name', flight.passengerName);
+  _putProvenance(body, 'supersedes_external_id', flight.supersedesExternalId);
+  _putProvenance(body, 'receipt_kind', flight.receiptKind);
+  return body;
+}
+
+void _putProvenance(Map<String, Object> body, String key, String value) {
+  if (value.isNotEmpty) body[key] = value;
+}
 
 Stay _stayFrom(Map<String, dynamic> json) {
   final role = PresenceRole.tryParse(_string(json, 'role'));
@@ -462,6 +494,13 @@ FlightRecord _flightFrom(Map<String, dynamic> json) {
     reviewState: review,
     notes: _string(json, 'notes'),
     externalId: _string(json, 'external_id'),
+    gmailMessageId: _string(json, 'gmail_message_id'),
+    gmailFrom: _string(json, 'gmail_from'),
+    gmailDate: _string(json, 'gmail_date'),
+    itineraryRef: _string(json, 'itinerary_ref'),
+    passengerName: _string(json, 'passenger_name'),
+    supersedesExternalId: _string(json, 'supersedes_external_id'),
+    receiptKind: _string(json, 'receipt_kind'),
   );
   final problem = validateFlight(flight);
   if (problem != null) throw FormatException(problem);

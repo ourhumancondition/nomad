@@ -5,6 +5,7 @@ import '../state/app_controller.dart';
 import 'calendar_page.dart';
 import 'days_page.dart';
 import 'flights_page.dart';
+import 'gmail_page.dart';
 import 'login_page.dart';
 import 'missing_page.dart';
 import 'opening_page.dart';
@@ -29,6 +30,7 @@ class NomadicApp extends StatefulWidget {
     this.initialSection = Section.days,
     this.initialExample = false,
     this.initialSignUp = false,
+    this.initialGmailResult,
     this.fontFamily,
     this.fontFamilyFallback,
   });
@@ -37,6 +39,7 @@ class NomadicApp extends StatefulWidget {
   final Section initialSection;
   final bool initialExample;
   final bool initialSignUp;
+  final String? initialGmailResult;
 
   /// Optional text face for screenshots. The running app leaves this unset.
   final String? fontFamily;
@@ -60,6 +63,11 @@ class _NomadicAppState extends State<NomadicApp> {
     signingUp = widget.initialSignUp;
     if (widget.initialExample && controller.kind == SessionKind.unconfigured) {
       controller.openExample();
+    }
+    final gmailResult = widget.initialGmailResult;
+    if (gmailResult != null && gmailResult.isNotEmpty) {
+      controller.noteGmailReturn(gmailResult);
+      replaceBrowserLocation(Section.gmail.path);
     }
     if (widget.controller == null) {
       controller.restoreIfSaved();
@@ -168,6 +176,7 @@ class _Shell extends StatelessWidget {
       Section.review => ReviewPage(controller: controller),
       Section.planned => PlannedPage(controller: controller),
       Section.transfer => TransferPage(controller: controller),
+      Section.gmail => GmailPage(controller: controller),
       Section.rules => RulesPage(controller: controller),
     };
     final signedIn = controller.accountEmail;

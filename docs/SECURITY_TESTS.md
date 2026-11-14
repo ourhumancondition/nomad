@@ -16,4 +16,6 @@ Observed on 8 Nov 2026:
 
 Flutter unit and widget tests cover the date engine, flight proposals, CSV, the endpoint allowlist, and the example-dataset gate. `flutter analyze` reported no issues. Those tests do not open a network connection.
 
+`python3 tool/gmail_rules_check.py` repeats that pattern for the Gmail vault on one disposable PocketBase 0.40.6 process. It does not call Google and does not use https://nomad.pockethost.io. A wrong vault secret is 403, the `gmail_links` records API is 403, and a second user does not receive the first user’s ciphertext.
+
 Production security was not validated. The only live call was `GET https://nomad.pockethost.io/api/health`, which returned HTTP 200 and `code` 200.

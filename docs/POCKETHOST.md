@@ -18,6 +18,7 @@
 4. The migration does not change the users collection. A blank users create rule lets someone create an account in the app. The app never asks for the PocketHost password or a superuser token. PocketHost Admin Sync makes the PocketHost login a superuser; keep that credential out of the web app and out of Vercel.
 5. In Nomadic Residence, enter `<instance>.pockethost.io` or the https origin, connect, then create an account or sign in. `wake_hour` and `wake_minute` are not required, because PocketBase 0.41 rejects `0` on a required number. `min` and `max` still limit them to a clock time.
 6. When the Vercel origin exists, set PocketHost CORS Origins to that origin.
+7. Gmail import needs a second migration and a hook. Copy `pb_migrations/1795000000_gmail_import.js` and both files in `pb_hooks/` after a backup, set `NOMAD_VAULT_SECRET`, and restart. The exact steps, and the warning not to run them against a database you cannot restore, are in [GMAIL.md](GMAIL.md). That migration was not applied to `nomad` by this repository.
 
 `.pockethostconfig` is gitignored on purpose. A committed instance name would aim `pockethost deploy` at one database.
 

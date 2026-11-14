@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../data/auth_errors.dart';
+import '../data/gmail_client.dart';
 import '../data/instance_endpoint.dart';
 import '../data/pocketbase_gateway.dart';
 import '../demo/example_dataset.dart';
@@ -8,8 +9,12 @@ import '../engine/between_flights.dart';
 import '../engine/csv_codec.dart';
 import '../engine/day_engine.dart';
 import '../engine/flight_proposals.dart';
+import '../engine/gmail_access.dart';
+import '../engine/gmail_fixtures.dart';
+import '../engine/gmail_receipts.dart';
 import '../engine/local_date.dart';
 import '../engine/models.dart';
+import '../platform/browser_location.dart';
 
 enum SessionKind { unconfigured, example, connected }
 
@@ -18,18 +23,24 @@ class AppController extends ChangeNotifier {
     LocalDate Function()? clock,
     PocketBaseGateway? gateway,
     bool? allowLocalEndpoints,
+    GmailClient? gmail,
+    void Function(String url)? openAuthorizeUrl,
   }) : clock = clock ?? LocalDate.todayDevice,
        gateway = gateway ?? PocketBaseGateway(),
        allowLocalEndpoints =
            allowLocalEndpoints ??
            (kDebugMode ||
-               const bool.fromEnvironment('ALLOW_LOCAL_POCKETBASE')) {
+               const bool.fromEnvironment('ALLOW_LOCAL_POCKETBASE')),
+       gmail = gmail ?? HttpGmailClient(),
+       openAuthorizeUrl = openAuthorizeUrl ?? assignBrowserLocation {
     year = this.clock().year;
   }
 
   final LocalDate Function() clock;
   final PocketBaseGateway gateway;
   final bool allowLocalEndpoints;
+  final GmailClient gmail;
+  final void Function(String url) openAuthorizeUrl;
 
   SessionKind kind = SessionKind.unconfigured;
   int year = 2026;
@@ -57,6 +68,21 @@ class AppController extends ChangeNotifier {
   /// True while a saved session is being opened. The login form stays hidden.
   bool restoring = false;
   int _sequence = 0;
+
+  GmailConnectionStatus gmailConnection = const GmailConnectionStatus.missing();
+  GmailImportPlan? gmailPlan;
+  String? gmailNotice;
+  String gmailPageToken = '';
+  int gmailSkipped = 0;
+
+  /// Receipt text for the current preview. Not shown and cleared on sign-out.
+  final List<ReceiptMessage> _gmailMessages = <ReceiptMessage>[];
+
+  String get sessionOwnerId {
+    if (isConnected) return gateway.currentUserId() ?? '';
+    if (isExample) return 'example';
+    return '';
+  }
 
   bool get isExample => kind == SessionKind.example;
   bool get isConnected => kind == SessionKind.connected;
@@ -125,6 +151,7 @@ class AppController extends ChangeNotifier {
     fieldErrors = {};
     errorMessage = null;
     statusMessage = 'Example dataset. These fictional rows stay in this tab and are not sent to PocketBase.';
+    _clearGmailSession();
     notifyListeners();
   }
 
@@ -138,6 +165,7 @@ class AppController extends ChangeNotifier {
     statuses = List<EvidenceStatusDef>.of(defaultEvidenceStatuses);
     year = clock().year;
     statusMessage = null;
+    _clearGmailSession();
     notifyListeners();
   }
 
@@ -305,6 +333,7 @@ class AppController extends ChangeNotifier {
     statuses = List<EvidenceStatusDef>.of(defaultEvidenceStatuses);
     year = clock().year;
     statusMessage = null;
+    _clearGmailSession();
     notifyListeners();
   }
 
@@ -582,6 +611,193 @@ class AppController extends ChangeNotifier {
   String exportFilename() => isExample
       ? 'nomadic-residence-EXAMPLE-dataset.csv'
       : 'nomadic-residence-export.csv';
+
+  void noteGmailReturn(String code) {
+    gmailNotice = switch (code) {
+      'connected' =>
+        'Gmail is connected for read-only receipt search. Nothing has been imported.',
+      'denied' => 'Gmail was not connected. No mailbox was read.',
+      'scope' =>
+        'Google offered more than read-only Gmail. Nothing was stored.',
+      _ => 'Gmail authorization did not finish. No mailbox was read.',
+    };
+  }
+
+  void previewFictionalReceipts() {
+    _gmailMessages
+      ..clear()
+      ..addAll(fictionalGmailReceipts());
+    gmailPageToken = '';
+    gmailSkipped = 0;
+    _publishGmailPlan(GmailPlanSource.fictional);
+  }
+
+  Future<String?> refreshGmail() async {
+    if (!isConnected) {
+      gmailConnection = const GmailConnectionStatus.missing();
+      notifyListeners();
+      return null;
+    }
+    final token = gateway.currentAuthToken();
+    if (token == null) return 'Sign in again before using Gmail.';
+    try {
+      gmailConnection = await gmail.status(authToken: token);
+      notifyListeners();
+      return null;
+    } on GmailClientException catch (error) {
+      return error.message;
+    }
+  }
+
+  Future<String?> connectGmail(String returnTo) async {
+    if (!isConnected) {
+      return 'Sign in to a database before connecting Gmail.';
+    }
+    if (!returnOriginAllowed(returnTo)) {
+      return 'This page is not an allowed return address.';
+    }
+    final token = gateway.currentAuthToken();
+    if (token == null) return 'Sign in again before connecting Gmail.';
+    try {
+      final url = await gmail.authorizeUrl(
+        authToken: token,
+        returnTo: returnTo,
+      );
+      openAuthorizeUrl(url);
+      return null;
+    } on GmailClientException catch (error) {
+      return error.message;
+    }
+  }
+
+  Future<String?> disconnectGmail() async {
+    final token = gateway.currentAuthToken();
+    if (token == null) return 'Sign in again before disconnecting Gmail.';
+    try {
+      gmailConnection = await gmail.disconnect(authToken: token);
+      if (gmailPlan?.source == GmailPlanSource.mailbox) {
+        gmailPlan = null;
+        _gmailMessages.clear();
+      }
+      notifyListeners();
+      return null;
+    } on GmailClientException catch (error) {
+      return error.message;
+    }
+  }
+
+  Future<String?> scanGmail({bool older = false}) async {
+    if (!isConnected) return 'Sign in to a database before reading Gmail.';
+    final blocked = mailboxReadBlock(gmailConnection.state);
+    if (blocked != null) return blocked;
+    final token = gateway.currentAuthToken();
+    final owner = gateway.currentUserId();
+    if (token == null || owner == null || owner.isEmpty) {
+      return 'Sign in again before reading Gmail.';
+    }
+    try {
+      final batch = await gmail.scan(
+        authToken: token,
+        pageToken: older ? gmailPageToken : '',
+      );
+      if (!scanAllowed(batch.state)) {
+        gmailConnection = GmailConnectionStatus(
+          state: batch.state,
+          googleEmail: gmailConnection.googleEmail,
+          scope: gmailConnection.scope,
+          connectedAt: gmailConnection.connectedAt,
+        );
+        gmailPlan = null;
+        _gmailMessages.clear();
+        notifyListeners();
+        return mailboxReadBlock(batch.state);
+      }
+      if (!older) _gmailMessages.clear();
+      _gmailMessages.addAll(batch.messages);
+      gmailPageToken = batch.nextPageToken;
+      gmailSkipped = batch.skipped;
+      _publishGmailPlan(GmailPlanSource.mailbox);
+      return null;
+    } on GmailClientException catch (error) {
+      if (error.code == 'revoked') {
+        gmailConnection = const GmailConnectionStatus(
+          state: GmailLinkState.revoked,
+        );
+        gmailPlan = null;
+        _gmailMessages.clear();
+        notifyListeners();
+      }
+      return error.message;
+    }
+  }
+
+  Future<String?> saveGmailSelection(GmailDraft draft) async {
+    final plan = gmailPlan;
+    if (plan == null) return 'There is no Gmail preview to save.';
+    if (!canEdit) {
+      return 'Open the example dataset or a database before saving.';
+    }
+    final mutations = mutationsFor(
+      plan: plan,
+      draft: draft,
+      sessionOwnerId: sessionOwnerId,
+      connection: gmailConnection.state,
+      connectedDatabase: isConnected,
+      existing: flights,
+    );
+    if (mutations.refusal != null) return mutations.refusal;
+    if (mutations.create.isEmpty && mutations.reject.isEmpty) {
+      return 'Nothing was saved. Check a booking, or the rows are already imported.';
+    }
+    var saved = 0;
+    var rejected = 0;
+    for (final flight in mutations.create) {
+      final failure = await saveFlight(flight);
+      if (failure != null) return _gmailStop(saved, rejected, failure);
+      saved += 1;
+    }
+    for (final flight in mutations.reject) {
+      if (flight.reviewState != FlightReviewState.rejected) {
+        return 'A cancellation tried to keep a flight. Nothing further was saved.';
+      }
+      final failure = await saveFlight(flight);
+      if (failure != null) return _gmailStop(saved, rejected, failure);
+      rejected += 1;
+    }
+    _publishGmailPlan(plan.source);
+    final bookingWord = saved == 1 ? 'booking' : 'bookings';
+    final rejectWord = rejected == 1 ? 'flight' : 'flights';
+    statusMessage = rejected == 0
+        ? 'Saved $saved $bookingWord for review. They are booking-only until you accept a flight yourself. No country day was added.'
+        : 'Saved $saved $bookingWord for review and rejected $rejected earlier $rejectWord. No country day was added.';
+    return null;
+  }
+
+  String _gmailStop(int saved, int rejected, String failure) {
+    final migration = failure.contains('gmail_')
+        ? ' Apply the Gmail migration on this database before importing.'
+        : '';
+    return 'Saved $saved bookings and rejected $rejected flights. Stopped. $failure$migration';
+  }
+
+  void _publishGmailPlan(GmailPlanSource source) {
+    gmailPlan = planGmailImport(
+      messages: _gmailMessages,
+      existing: flights,
+      ownerId: sessionOwnerId,
+      source: source,
+    );
+    notifyListeners();
+  }
+
+  void _clearGmailSession() {
+    gmailConnection = const GmailConnectionStatus.missing();
+    gmailPlan = null;
+    gmailNotice = null;
+    gmailPageToken = '';
+    gmailSkipped = 0;
+    _gmailMessages.clear();
+  }
 
   List<FlightProposal> proposalsFor(FlightRecord flight) =>
       proposeItinerary([flight], rules);

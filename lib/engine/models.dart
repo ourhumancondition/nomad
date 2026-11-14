@@ -249,8 +249,11 @@ const commonTimezones = <String>[
   'Asia/Singapore',
   'Asia/Hong_Kong',
   'Asia/Shanghai',
+  'Asia/Taipei',
   'Asia/Tokyo',
   'Asia/Seoul',
+  'Europe/Berlin',
+  'Europe/Warsaw',
   'Australia/Sydney',
   'Pacific/Auckland',
   'Pacific/Honolulu',
@@ -343,6 +346,13 @@ class FlightRecord {
     required this.reviewState,
     this.notes = '',
     this.externalId = '',
+    this.gmailMessageId = '',
+    this.gmailFrom = '',
+    this.gmailDate = '',
+    this.itineraryRef = '',
+    this.passengerName = '',
+    this.supersedesExternalId = '',
+    this.receiptKind = '',
   });
 
   final String id;
@@ -361,12 +371,29 @@ class FlightRecord {
   final String notes;
   final String externalId;
 
+  /// Gmail provenance. Empty for flights that did not come from a receipt.
+  /// These fields never hold the receipt body.
+  final String gmailMessageId;
+  final String gmailFrom;
+  final String gmailDate;
+  final String itineraryRef;
+  final String passengerName;
+  final String supersedesExternalId;
+  final String receiptKind;
+
   FlightRecord copyWith({
     String? id,
     FlightReviewState? reviewState,
     String? evidenceStatus,
     InferenceKind? inference,
     String? notes,
+    String? gmailMessageId,
+    String? gmailFrom,
+    String? gmailDate,
+    String? itineraryRef,
+    String? passengerName,
+    String? supersedesExternalId,
+    String? receiptKind,
   }) => FlightRecord(
     id: id ?? this.id,
     flightNumber: flightNumber,
@@ -383,6 +410,14 @@ class FlightRecord {
     reviewState: reviewState ?? this.reviewState,
     notes: notes ?? this.notes,
     externalId: externalId,
+    gmailMessageId: gmailMessageId ?? this.gmailMessageId,
+    gmailFrom: gmailFrom ?? this.gmailFrom,
+    gmailDate: gmailDate ?? this.gmailDate,
+    itineraryRef: itineraryRef ?? this.itineraryRef,
+    passengerName: passengerName ?? this.passengerName,
+    supersedesExternalId:
+        supersedesExternalId ?? this.supersedesExternalId,
+    receiptKind: receiptKind ?? this.receiptKind,
   );
 }
 
@@ -437,6 +472,15 @@ String? validateFlight(FlightRecord flight) {
   }
   if (flight.notes.length > 2000) {
     return 'Notes are limited to 2000 characters.';
+  }
+  if (flight.externalId.length > 80) {
+    return 'External ids are limited to 80 characters.';
+  }
+  if (flight.receiptKind.isNotEmpty &&
+      flight.receiptKind != 'booking' &&
+      flight.receiptKind != 'amendment' &&
+      flight.receiptKind != 'cancellation') {
+    return 'Receipt kind must be booking, amendment, or cancellation.';
   }
   return null;
 }

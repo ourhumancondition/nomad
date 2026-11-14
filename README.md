@@ -32,6 +32,10 @@ Setup, the provisioning blocker, and the local auth tests are in [docs/POCKETHOS
 
 Import and export use the columns in [docs/CSV.md](docs/CSV.md). Import adds rows and updates a row only when its external id already exists. It does not delete rows.
 
+## Gmail receipts
+
+Flight receipts can be read from Gmail after the traveler connects a read-only grant and reviews the preview. Bookings stay booking-only until the traveler accepts a flight. Setup for the Google OAuth client, the Vercel environment, and the PocketBase migration is in [docs/GMAIL.md](docs/GMAIL.md). This app does not ship a Google client secret.
+
 ## Status of this workspace
 
 What is implemented, what was verified locally, what is connected to a live database, and what is deployed are separated in [docs/STATUS.md](docs/STATUS.md).

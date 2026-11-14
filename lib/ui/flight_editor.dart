@@ -139,6 +139,13 @@ class _FlightEditorState extends State<_FlightEditor> {
       reviewState: review,
       notes: notes.text.trim(),
       externalId: externalId.text.trim(),
+      gmailMessageId: widget.existing?.gmailMessageId ?? '',
+      gmailFrom: widget.existing?.gmailFrom ?? '',
+      gmailDate: widget.existing?.gmailDate ?? '',
+      itineraryRef: widget.existing?.itineraryRef ?? '',
+      passengerName: widget.existing?.passengerName ?? '',
+      supersedesExternalId: widget.existing?.supersedesExternalId ?? '',
+      receiptKind: widget.existing?.receiptKind ?? '',
     );
     final failure = validateFlight(flight);
     if (failure != null) {

@@ -16,6 +16,7 @@ enum Section {
   review('/review', 'Gaps', Icons.rule),
   planned('/planned', 'Planned', Icons.event_note),
   transfer('/transfer', 'Spreadsheet', Icons.table_chart),
+  gmail('/gmail', 'Gmail', Icons.mail_outline),
   rules('/rules', 'Settings', Icons.tune);
 
   const Section(this.path, this.label, this.icon);
