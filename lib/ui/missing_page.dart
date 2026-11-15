@@ -111,11 +111,11 @@ class _GapTile extends StatelessWidget {
                     key: Key(
                       'suggest-${suggestion.countryCode}-${range.start.iso}',
                     ),
-                    onPressed: () => _add(
+                    onPressed: () => _saveSuggested(
                       context,
                       controller,
                       range,
-                      country: suggestion.countryCode,
+                      suggestion.countryCode,
                     ),
                     child: Text(suggestion.label),
                   ),
@@ -139,14 +139,23 @@ class _GapTile extends StatelessWidget {
   }
 }
 
-class _FactBlock extends StatelessWidget {
+class _FactBlock extends StatefulWidget {
   const _FactBlock({required this.fact, required this.id});
 
   final GapFact fact;
   final String id;
 
   @override
+  State<_FactBlock> createState() => _FactBlockState();
+}
+
+class _FactBlockState extends State<_FactBlock> {
+  bool open = false;
+
+  @override
   Widget build(BuildContext context) {
+    final fact = widget.fact;
+    final id = widget.id;
     return Column(
       key: Key('gap-fact-$id'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,6 +170,24 @@ class _FactBlock extends StatelessWidget {
             key: Key('gap-note-$id'),
             style: const TextStyle(color: Color(0xFF5C564E)),
           ),
+        ],
+        if (fact.moreDetails.isNotEmpty) ...[
+          TextButton(
+            key: Key('more-details-$id'),
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 36),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: () => setState(() => open = !open),
+            child: Text(open ? 'Hide details' : 'More details'),
+          ),
+          if (open)
+            for (final line in fact.moreDetails)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 2),
+                child: Text(line),
+              ),
         ],
       ],
     );
@@ -181,14 +208,12 @@ List<FlightRecord> _flightsToConfirm(UnknownTile tile) {
 Future<void> _add(
   BuildContext context,
   AppController controller,
-  DateRange range, {
-  String? country,
-}) async {
+  DateRange range,
+) async {
   final stay = await showWhereWereYou(
     context,
     start: range.start,
     end: range.end,
-    initialCountry: country,
   );
   if (stay == null) return;
   final failure = await controller.saveStay(stay);
@@ -196,6 +221,78 @@ Future<void> _add(
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(failure)));
   }
+}
+
+Future<void> _saveSuggested(
+  BuildContext context,
+  AppController controller,
+  DateRange range,
+  String country,
+) async {
+  final messenger = ScaffoldMessenger.of(context);
+  final stay = stayForRange(
+    country: country,
+    start: range.start,
+    end: range.end,
+  );
+  final before = controller.stays.map((item) => item.id).toSet();
+  final failure = await controller.saveStay(stay);
+  if (failure != null) {
+    messenger
+      ..clearSnackBars()
+      ..showSnackBar(
+        const SnackBar(
+          content: Text('Couldn\'t save that stay. Nothing was added.'),
+        ),
+      );
+    return;
+  }
+  final created = controller.stays
+      .where((item) => item.id.isNotEmpty && !before.contains(item.id))
+      .toList();
+  messenger.clearSnackBars();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        'Saved ${shortRange(range.start, range.end)} as ${countryName(country)}',
+      ),
+      action: created.length == 1
+          ? SnackBarAction(
+              label: 'Undo',
+              onPressed: () async {
+                final undoFailure = await controller.deleteStay(
+                  created.single.id,
+                );
+                if (undoFailure != null) {
+                  messenger.showSnackBar(
+                    const SnackBar(content: Text('Couldn\'t undo that stay.')),
+                  );
+                }
+              },
+            )
+          : null,
+    ),
+  );
+}
+
+Stay stayForRange({
+  required String country,
+  required LocalDate start,
+  required LocalDate end,
+}) {
+  return Stay(
+    id: '',
+    countryCode: country,
+    start: start,
+    end: end,
+    role: PresenceRole.primary,
+    evidenceStatus: 'confirmed',
+    inference: InferenceKind.none,
+    phase: TripPhase.actual,
+    timezone: 'Etc/UTC',
+    notes: '',
+    source: RecordSource.manual,
+  );
 }
 
 Future<void> _confirm(
@@ -256,18 +353,10 @@ class _WhereDialogState extends State<_WhereDialog> {
       setState(() => problem = 'Choose a country.');
       return;
     }
-    final stay = Stay(
-      id: '',
-      countryCode: country,
+    final stay = stayForRange(
+      country: country,
       start: widget.start,
       end: widget.end,
-      role: PresenceRole.primary,
-      evidenceStatus: 'confirmed',
-      inference: InferenceKind.none,
-      phase: TripPhase.actual,
-      timezone: 'Etc/UTC',
-      notes: '',
-      source: RecordSource.manual,
     );
     final failure = validateStay(stay);
     if (failure != null) {

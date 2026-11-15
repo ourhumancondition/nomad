@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../data/countries.dart';
 import '../engine/flight_brackets.dart';
 import '../engine/local_date.dart';
@@ -38,6 +40,7 @@ class GapFact {
     required this.detail,
     this.when,
     this.note,
+    this.moreDetails = const [],
     this.unconfirmed = false,
     this.flight,
   });
@@ -48,6 +51,9 @@ class GapFact {
   final String detail;
   final LocalDate? when;
   final String? note;
+
+  /// Readable extra fields. Never raw JSON or a web address.
+  final List<String> moreDetails;
 
   /// True when the flight is not counted yet.
   final bool unconfirmed;
@@ -102,7 +108,8 @@ UnknownTile _describe(
         fact.kind == GapFactKind.landing &&
         facts.any(
           (other) =>
-              other.kind == GapFactKind.departure && other.flight == fact.flight,
+              other.kind == GapFactKind.departure &&
+              other.flight == fact.flight,
         ),
   );
   GapFact? landing;
@@ -260,6 +267,7 @@ GapFact _landingFact(
 ) {
   final place = countryName(flight.toCountry);
   final unconfirmed = !_counts(flight, statuses);
+  final readable = _readableNotes(flight.notes);
   return GapFact(
     heading: heading,
     kind: GapFactKind.landing,
@@ -267,7 +275,8 @@ GapFact _landingFact(
     detail:
         'Landed in $place · ${flight.flightNumber} · ${flight.fromIata} to ${flight.toIata} · ${shortDate(flight.arrive.date)} at ${shortClock(flight.arrive)}',
     when: flight.arrive.date,
-    note: _note(flight.notes, unconfirmed),
+    note: _visibleNote(readable.plain, unconfirmed),
+    moreDetails: readable.details,
     unconfirmed: unconfirmed,
     flight: flight,
   );
@@ -280,6 +289,7 @@ GapFact _departureFact(
 ) {
   final place = countryName(flight.fromCountry);
   final unconfirmed = !_counts(flight, statuses);
+  final readable = _readableNotes(flight.notes);
   return GapFact(
     heading: heading,
     kind: GapFactKind.departure,
@@ -287,7 +297,8 @@ GapFact _departureFact(
     detail:
         'Flew out of $place · ${flight.flightNumber} · ${flight.fromIata} to ${flight.toIata} · ${shortDate(flight.depart.date)} at ${shortClock(flight.depart)}',
     when: flight.depart.date,
-    note: _note(flight.notes, unconfirmed),
+    note: _visibleNote(readable.plain, unconfirmed),
+    moreDetails: readable.details,
     unconfirmed: unconfirmed,
     flight: flight,
   );
@@ -298,8 +309,9 @@ GapFact _stayFact(String heading, Stay stay, {required bool ended}) {
   final when = ended
       ? 'until ${shortDate(stay.end)}'
       : 'from ${shortDate(stay.start)}';
+  final readable = _readableNotes(stay.notes);
   final bits = <String>[
-    if (stay.notes.trim().isNotEmpty) stay.notes.trim(),
+    ?readable.plain,
     if (stay.source == RecordSource.csv) 'From a spreadsheet',
   ];
   return GapFact(
@@ -309,17 +321,114 @@ GapFact _stayFact(String heading, Stay stay, {required bool ended}) {
     detail: 'You were in $place $when',
     when: ended ? stay.end : stay.start,
     note: bits.isEmpty ? null : bits.join(' · '),
+    moreDetails: readable.details,
   );
 }
 
-String? _note(String notes, bool unconfirmed) {
-  final text = notes.trim();
+String? _visibleNote(String? plain, bool unconfirmed) {
   final parts = <String>[
     if (unconfirmed) 'Not confirmed yet',
-    if (text.isNotEmpty) text,
+    ?plain,
   ];
   if (parts.isEmpty) return null;
   return parts.join(' · ');
+}
+
+class _ReadableNotes {
+  const _ReadableNotes({this.plain, this.details = const []});
+
+  final String? plain;
+  final List<String> details;
+}
+
+const _noteLabels = <String, String>{
+  'raw_evidence_class': 'How it was recorded',
+  'raw_class': 'How it was recorded',
+  'allocation': 'Time used',
+  'timezone_basis': 'Time zone',
+  'count_qualified': 'Counts toward the total',
+  'inclusive_end': 'Includes the last day',
+  'notes': 'Note',
+  'source': 'Where it came from',
+};
+
+final _jsonObject = RegExp(r'\{(?:[^{}]|\{[^{}]*\})*\}');
+
+_ReadableNotes _readableNotes(String raw) {
+  final text = raw.trim();
+  if (text.isEmpty) return const _ReadableNotes();
+  final details = <String>[];
+  final seen = <String>{};
+  void addLine(String line) {
+    if (seen.add(line)) details.add(line);
+  }
+
+  void takeMap(Map<dynamic, dynamic> map) {
+    for (final entry in map.entries) {
+      final label = _noteLabels[entry.key.toString()];
+      if (label == null) continue;
+      final value = _plainValue(entry.key.toString(), entry.value);
+      if (value == null) continue;
+      addLine('$label: $value');
+    }
+  }
+
+  for (final match in _jsonObject.allMatches(text)) {
+    try {
+      final decoded = jsonDecode(match.group(0)!);
+      if (decoded is Map) takeMap(decoded);
+    } on FormatException {
+      continue;
+    }
+  }
+  final loose = RegExp(
+    r'''([A-Za-z][A-Za-z0-9_]*)\s*[:=]\s*("[^"]*"|[^,{}\n]+)''',
+  );
+  for (final match in loose.allMatches(text)) {
+    final key = match.group(1)!;
+    if (!_noteLabels.containsKey(key)) continue;
+    var value = match.group(2)!.trim();
+    if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+      value = value.substring(1, value.length - 1);
+    }
+    final plain = _plainValue(key, value);
+    if (plain == null) continue;
+    addLine('${_noteLabels[key]}: $plain');
+  }
+
+  final structured =
+      text.contains('{') ||
+      text.contains('}') ||
+      text.contains('http://') ||
+      text.contains('https://') ||
+      text.contains('docs.google.com');
+  if (structured) {
+    return _ReadableNotes(details: details);
+  }
+  if (text.length > 120) {
+    return _ReadableNotes(details: [text.substring(0, 117)]);
+  }
+  return _ReadableNotes(plain: text, details: details);
+}
+
+String? _plainValue(String key, Object? value) {
+  if (value == null) return null;
+  if (value is bool) return value ? 'Yes' : 'No';
+  final text = value.toString().trim();
+  if (text.isEmpty || text == 'null') return null;
+  final lower = text.toLowerCase();
+  if (lower == 'true' || lower == 'false') {
+    return lower == 'true' ? 'Yes' : 'No';
+  }
+  if (text.contains('{') || text.contains('}')) return null;
+  if (text.contains('http://') ||
+      text.contains('https://') ||
+      text.contains('docs.google.com')) {
+    if (key == 'source') return 'A spreadsheet';
+    return null;
+  }
+  if (text.length > 180) return '${text.substring(0, 177)}…';
+  return text;
 }
 
 bool _counts(FlightRecord flight, List<EvidenceStatusDef> statuses) =>
