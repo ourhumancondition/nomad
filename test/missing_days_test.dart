@@ -88,8 +88,11 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: buildTheme(),
-        home: Scaffold(
-          body: MissingPage(controller: controller, rolling: false),
+        home: AnimatedBuilder(
+          animation: controller,
+          builder: (context, _) => Scaffold(
+            body: MissingPage(controller: controller, rolling: false),
+          ),
         ),
       ),
     );
@@ -146,29 +149,47 @@ void main() {
     expect(find.textContaining('AC200'), findsWidgets);
 
     expect(controller.stays.where((item) => item.countryCode == 'CA'), isEmpty);
+    final rangeLabel = tester
+        .widgetList<Text>(
+          find.descendant(
+            of: find.byKey(const Key('missing-2026-01-01')),
+            matching: find.byType(Text),
+          ),
+        )
+        .first
+        .data!;
     await tester.tap(find.byKey(const Key('suggest-CA-2026-01-01')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Where were you?'), findsNothing);
+    expect(find.text('Saved $rangeLabel as Canada'), findsOneWidget);
+    final saved = controller.stays.singleWhere(
+      (item) => item.countryCode == 'CA',
+    );
+    expect(saved.role, PresenceRole.primary);
+    expect(saved.evidenceStatus, 'confirmed');
+    expect(saved.inference, InferenceKind.none);
+    expect(saved.phase, TripPhase.actual);
+    expect(saved.timezone, 'Etc/UTC');
+    expect(saved.notes, isEmpty);
+    expect(saved.source, RecordSource.manual);
+    expect(saved.start, LocalDate.parse('2026-01-01'));
+    expect(find.byKey(const Key('missing-2026-01-01')), findsNothing);
+    expect(controller.stays.where((item) => item.id == 'pt'), isNotEmpty);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(controller.stays.where((item) => item.countryCode == 'CA'), isEmpty);
+    expect(controller.stays.where((item) => item.id == 'pt'), isNotEmpty);
+    expect(find.byKey(const Key('missing-2026-01-01')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('add-where-2026-01-01')));
     await tester.pumpAndSettle();
     expect(find.text('Where were you?'), findsOneWidget);
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('where-country')))
-          .controller
-          ?.text,
-      'Canada',
-    );
-    expect(controller.stays.where((item) => item.countryCode == 'CA'), isEmpty);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(controller.stays.where((item) => item.countryCode == 'CA'), isEmpty);
-
-    await tester.tap(find.byKey(const Key('suggest-CA-2026-01-01')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('where-save')));
-    await tester.pumpAndSettle();
-    expect(
-      controller.stays.where((item) => item.countryCode == 'CA'),
-      isNotEmpty,
-    );
 
     final reloaded = load(
       stays: [
@@ -216,6 +237,7 @@ void main() {
           depart: '2026-03-02T11:00',
           arrive: '2026-03-02T15:00',
           review: FlightReviewState.needsManual,
+          notes: '{"raw_evidence_class":"Provisional - booking only","source":"https://docs.google.com/spreadsheets/d/abc/edit","count_qualified":false,"timezone_basis":"Derived from the stay city"} [],raw_class : Provisional - booking only',
         ),
       ],
     );
@@ -232,6 +254,57 @@ void main() {
     expect(find.textContaining('Not confirmed yet'), findsWidgets);
     expect(find.byKey(const Key('confirm-flight-cn')), findsOneWidget);
     expect(find.byKey(const Key('confirm-flight-ph')), findsNothing);
+    expect(find.textContaining('raw_evidence_class'), findsNothing);
+    expect(find.textContaining('https://'), findsNothing);
+    expect(find.textContaining('{'), findsNothing);
+    expect(find.textContaining('How it was recorded'), findsNothing);
+
+    await tester.tap(find.text('More details'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('How it was recorded: Provisional - booking only'),
+      findsOneWidget,
+    );
+    expect(find.text('Where it came from: A spreadsheet'), findsOneWidget);
+    expect(find.text('Counts toward the total: No'), findsOneWidget);
+    expect(find.text('Time zone: Derived from the stay city'), findsOneWidget);
+    expect(find.textContaining('raw_evidence_class'), findsNothing);
+    expect(find.textContaining('https://'), findsNothing);
+    expect(find.textContaining('docs.google.com'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a failed one-tap save leaves the days unchanged', (
+    tester,
+  ) async {
+    final controller = load(stays: const [], flights: const []);
+    controller.kind = SessionKind.unconfigured;
+    controller.stays = [
+      stay(id: 'pt', country: 'PT', start: '2026-01-24', end: '2026-02-06'),
+    ];
+    controller.flights = [
+      flight(
+        id: 'in',
+        number: 'AC100',
+        from: 'GB',
+        to: 'CA',
+        fromIata: 'LHR',
+        toIata: 'YYZ',
+        depart: '2025-12-31T10:00',
+        arrive: '2025-12-31T18:00',
+      ),
+    ];
+    await pump(tester, controller);
+    final before = controller.stays.length;
+    await tester.tap(find.byKey(const Key('suggest-CA-2026-01-01')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Where were you?'), findsNothing);
+    expect(
+      find.text('Couldn\'t save that stay. Nothing was added.'),
+      findsOneWidget,
+    );
+    expect(controller.stays.length, before);
+    expect(controller.stays.every((item) => item.countryCode != 'CA'), isTrue);
   });
 }
