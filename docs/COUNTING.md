@@ -69,3 +69,26 @@ Accepting one flight still proposes only the immediate connection. A proposal is
 ## Flight review
 
 Proposals are created as inferences with evidence status `inferred`, so they do not count until you accept them. Accepting can clear the inference mark or keep it. A booking-only flight asks you to confirm that you are recording presence. The proposal step still does not fill a gap of more than one day. The year summary’s flight brackets, above, are what count a longer same-country stay.
+
+## Today
+
+The banner at the top of the Days page answers one question: which country is today counted in? Today is the browser’s local calendar date. A UTC clock reading is converted to local time first, so a late evening does not slide into tomorrow.
+
+The banner does not count anything itself. `resolveTodayOn` in `lib/engine/today_presence.dart` runs the same `DayEngine.tally` the year totals use, for the year that contains today, and reads today’s entry. Today therefore follows every rule above: the wake time, in-transit wake-ups, booking-only records that do not count, and flight brackets.
+
+| Banner status | Engine result for today |
+| --- | --- |
+| Confirmed | A counting stay sets the wake-up country. The source line names the evidence status, for example “Confirmed stay” or “Corroborated stay”. |
+| From flights | A qualifying flight bracket sets the wake-up country, for example “From flights: landed AC5 on Nov 9”. |
+| In transit | The wake time is in the air, or a stay records an in-transit wake-up. |
+| Needs a check | Two wake-up countries overlap. Neither is chosen. |
+| Unknown | Nothing counts. A country may be suggested from an uncounted stay, the latest arrival, or yesterday. The suggestion is not counted. |
+
+“Day N this year” is the wake-up total for that country from 1 January through today. “Here since” is the first day of the unbroken run of wake-ups in that country that reaches today. It can start in an earlier year.
+
+Resolving today writes nothing. Two taps can write:
+
+- **Yes, I’m here** saves a confirmed, observed stay for today only. If a confirmed stay in the same country ends yesterday or starts tomorrow, that stay grows by one day instead.
+- **I’m somewhere else** does the same for the country you pick, with an optional note.
+
+Both writes go through the normal stay save for the signed-in traveler, and both can be undone for 5 seconds. Neither edits flights, and neither uses flight proposals or Accept.
