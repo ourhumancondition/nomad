@@ -347,64 +347,167 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
-/// The slim sticky header shown once the full banner scrolls away.
-class TodayCompactBar extends StatelessWidget {
-  const TodayCompactBar({super.key, required this.presence, this.onTap});
+/// The app's top bar: where I am today, on every signed-in page.
+class TodayTopBar extends StatelessWidget {
+  const TodayTopBar({
+    super.key,
+    required this.presence,
+    this.loading = false,
+    this.onTap,
+  });
 
   final TodayPresence presence;
+
+  /// While records load the bar names no country.
+  final bool loading;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final code = presence.countryCode;
-    final flag = switch (presence.status) {
-      TodayStatus.confirmed || TodayStatus.fromFlights => _flagOr(code, '📍'),
-      TodayStatus.inTransit => '✈️',
-      TodayStatus.conflict => '⚠️',
-      TodayStatus.unknown => '🌍',
-    };
-    final title = switch (presence.status) {
-      TodayStatus.confirmed || TodayStatus.fromFlights => presence.countryName!,
-      TodayStatus.inTransit => 'In transit',
-      TodayStatus.conflict => 'Two countries today',
-      TodayStatus.unknown => 'Where are you today?',
-    };
-    return Material(
-      key: const Key('today-compact'),
-      color: todaySurface(context),
-      elevation: 2,
-      shadowColor: Colors.black26,
-      child: Semantics(
-        button: onTap != null,
-        label: todaySemanticLabel(presence),
-        excludeSemantics: true,
-        child: InkWell(
-          onTap: onTap,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(minHeight: 52),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Row(
-                children: [
-                  Text(flag, style: const TextStyle(fontSize: 24)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      title,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: theme.colorScheme.onSurface,
-                      ),
+    final flag = loading
+        ? '🌍'
+        : switch (presence.status) {
+            TodayStatus.confirmed ||
+            TodayStatus.fromFlights => _flagOr(code, '📍'),
+            TodayStatus.inTransit => '✈️',
+            TodayStatus.conflict => '⚠️',
+            TodayStatus.unknown => '🌍',
+          };
+    final title = loading
+        ? 'Where I am today'
+        : switch (presence.status) {
+            TodayStatus.confirmed ||
+            TodayStatus.fromFlights => 'Today: ${presence.countryName}',
+            TodayStatus.inTransit => 'Today: in transit',
+            TodayStatus.conflict => 'Today: two countries',
+            TodayStatus.unknown => 'Where am I today?',
+          };
+    return Semantics(
+      key: const Key('today-top-bar'),
+      button: onTap != null,
+      label: loading
+          ? 'Loading today\'s country'
+          : todaySemanticLabel(presence),
+      excludeSemantics: true,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Row(
+              children: [
+                Text(flag, style: const TextStyle(fontSize: 24)),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    title,
+                    key: const Key('today-top-title'),
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.onSurface,
                     ),
                   ),
+                ),
+                if (!loading) ...[
+                  const SizedBox(width: 8),
                   _StatusChip(status: presence.status, dense: true),
                 ],
-              ),
+              ],
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Offers the connection's country for today. Nothing is saved without a
+/// tap, and a VPN can make this wrong, so the text says it is a guess.
+class ConnectionOffer extends StatelessWidget {
+  const ConnectionOffer({
+    super.key,
+    required this.country,
+    required this.presence,
+    required this.onSet,
+    required this.onDismiss,
+    this.saving = false,
+  });
+
+  final String country;
+  final TodayPresence presence;
+  final VoidCallback onSet;
+  final VoidCallback onDismiss;
+  final bool saving;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final dark = theme.brightness == Brightness.dark;
+    final name = countryName(country);
+    final expected = presence.countryName;
+    final lead = switch (presence.status) {
+      TodayStatus.confirmed || TodayStatus.fromFlights =>
+        'Your connection looks like $name, not $expected.',
+      TodayStatus.inTransit =>
+        'You\'re marked in transit, but your connection looks like $name.',
+      _ => 'Your connection looks like it\'s in $name.',
+    };
+    const style = ButtonStyle(
+      minimumSize: WidgetStatePropertyAll(Size(48, 48)),
+    );
+    return Container(
+      key: const Key('connection-offer'),
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 6),
+      decoration: BoxDecoration(
+        color: dark ? const Color(0xFF1A2B45) : const Color(0xFFE3ECF7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: dark ? const Color(0xFF34507A) : const Color(0xFFB9CDE8),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${countryFlag(country)} $lead',
+            key: const Key('connection-offer-text'),
+            style: theme.textTheme.bodyLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          Text(
+            'Based on your internet connection. A VPN can show another country.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: todayMutedText(theme.brightness),
+            ),
+          ),
+          Wrap(
+            spacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              FilledButton(
+                key: const Key('connection-offer-set'),
+                style: style,
+                onPressed: saving ? null : onSet,
+                child: Text('Set today to $name'),
+              ),
+              TextButton(
+                key: const Key('connection-offer-dismiss'),
+                style: style,
+                onPressed: onDismiss,
+                child: const Text('Not now'),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

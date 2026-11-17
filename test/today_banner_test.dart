@@ -293,35 +293,6 @@ void main() {
     expect(find.byKey(const Key('today-banner-confirmed')), findsNothing);
   });
 
-  testWidgets('scrolling shows the slim sticky header', (tester) async {
-    await setSize(tester, const Size(375, 1100));
-    await tester.pumpWidget(
-      NomadicApp(controller: controllerFor(TodayStatus.confirmed)),
-    );
-    double compactOpacity() => tester
-        .widget<AnimatedOpacity>(
-          find.ancestor(
-            of: find.byKey(const Key('today-compact')),
-            matching: find.byType(AnimatedOpacity),
-          ),
-        )
-        .opacity;
-    expect(compactOpacity(), 0);
-    await tester.drag(find.byType(ListView).first, const Offset(0, -400));
-    await tester.pumpAndSettle();
-    expect(compactOpacity(), 1);
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('today-compact')),
-        matching: find.text('Canada'),
-      ),
-      findsOneWidget,
-    );
-    await tester.tap(find.byKey(const Key('today-compact')));
-    await tester.pumpAndSettle();
-    expect(compactOpacity(), 0);
-  });
-
   group('one-tap actions', () {
     testWidgets('"Yes, I\'m here" saves today and undo removes it', (
       tester,

@@ -18,6 +18,8 @@ import 'signup_page.dart';
 import 'stays_page.dart';
 import 'summary_page.dart';
 import 'theme.dart';
+import 'today_actions.dart';
+import 'today_banner.dart';
 import 'transfer_page.dart';
 import 'trips_page.dart';
 
@@ -200,6 +202,8 @@ class _Shell extends StatelessWidget {
         section != Section.missing &&
         section != Section.trips;
     final back = section.backTo;
+    final today = controller.today;
+    final offer = controller.connectionOffer;
     final header = Material(
       color: paper,
       child: Column(
@@ -223,11 +227,16 @@ class _Shell extends StatelessWidget {
                     icon: const Icon(Icons.arrow_back),
                     label: Text(back.label),
                   ),
-                const Expanded(
-                  child: Text(
-                    'Nomadic Residence',
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: TodayTopBar(
+                      presence: today,
+                      loading: controller.restoring,
+                      onTap: section == Section.days
+                          ? null
+                          : () => onSelect(Section.days),
+                    ),
                   ),
                 ),
                 if (showYear) ...[
@@ -250,6 +259,16 @@ class _Shell extends StatelessWidget {
               ],
             ),
           ),
+          if (offer != null && !controller.restoring)
+            Builder(
+              builder: (context) => ConnectionOffer(
+                country: offer,
+                presence: today,
+                saving: controller.busy,
+                onSet: () => saveTodayWithUndo(context, controller, offer),
+                onDismiss: controller.dismissConnectionOffer,
+              ),
+            ),
           banner,
           if (!controller.isExample && controller.notices.isNotEmpty)
             _Banner(

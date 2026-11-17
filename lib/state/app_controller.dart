@@ -1,6 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../data/auth_errors.dart';
+import '../data/connection_country.dart';
 import '../data/gmail_client.dart';
 import '../data/instance_endpoint.dart';
 import '../data/pocketbase_gateway.dart';
@@ -26,7 +29,9 @@ class AppController extends ChangeNotifier {
     bool? allowLocalEndpoints,
     GmailClient? gmail,
     void Function(String url)? openAuthorizeUrl,
+    ConnectionCountryLookup? whereLookup,
   }) : clock = clock ?? LocalDate.todayDevice,
+       whereLookup = whereLookup ?? HttpConnectionCountryLookup(),
        gateway = gateway ?? PocketBaseGateway(),
        allowLocalEndpoints =
            allowLocalEndpoints ??
@@ -42,6 +47,7 @@ class AppController extends ChangeNotifier {
   final bool allowLocalEndpoints;
   final GmailClient gmail;
   final void Function(String url) openAuthorizeUrl;
+  final ConnectionCountryLookup whereLookup;
 
   SessionKind kind = SessionKind.unconfigured;
   int year = 2026;
@@ -124,16 +130,39 @@ class AppController extends ChangeNotifier {
     statuses: statuses,
   );
 
+  /// Counting stays in a country other than [country] that cover today.
+  /// Saving [country] for today takes today out of these.
+  List<Stay> todayStaysElsewhere(String country) {
+    final date = clock();
+    return [
+      for (final stay in stays)
+        if (stay.covers(date) &&
+            stay.role == PresenceRole.primary &&
+            stay.countryCode.isNotEmpty &&
+            stay.countryCode != country &&
+            DayEngine.countsAsActual(stay, rules, statuses))
+          stay,
+    ];
+  }
+
   /// Records that the traveler woke up in [country] today.
   ///
   /// Extends an adjacent confirmed, observed stay in the same country by one
-  /// day, or saves a new confirmed stay for today only. Goes through
-  /// [saveStay], so the same API rules apply. Never touches flights and
-  /// never uses flight proposals. Returns an undo that reverses only this
-  /// write.
+  /// day, or saves a new confirmed stay for today only.
+  ///
+  /// When a counting stay in another country also covers today, nothing is
+  /// written unless [replaceOthers] is true; the result lists those stays so
+  /// the caller can ask first. With [replaceOthers], today is taken out of
+  /// each of them (shortened, split around today, or removed when it was
+  /// today only), so today does not become a conflict.
+  ///
+  /// Every write goes through [saveStay] or [deleteStay], so the same API
+  /// rules apply. Flights and flight proposals are never touched. The undo
+  /// reverses every step of this write and nothing else.
   Future<TodayWriteResult> saveTodayStay(
     String country, {
     String note = '',
+    bool replaceOthers = false,
   }) async {
     if (!RegExp(r'^[A-Z]{2}$').hasMatch(country)) {
       return const TodayWriteResult(failure: 'Choose a country.');
@@ -142,6 +171,8 @@ class AppController extends ChangeNotifier {
     final yesterday = date.addDays(-1);
     final tomorrow = date.addDays(1);
     final trimmed = note.trim();
+
+    var covered = false;
     Stay? adjacent;
     for (final stay in stays) {
       if (stay.phase != TripPhase.actual) continue;
@@ -149,50 +180,154 @@ class AppController extends ChangeNotifier {
       if (stay.countryCode != country) continue;
       if (stay.evidenceStatus != 'confirmed') continue;
       if (stay.inference.isInference) continue;
-      if (stay.covers(date)) {
-        return const TodayWriteResult(alreadySaved: true);
-      }
+      if (stay.covers(date)) covered = true;
       if (stay.end == yesterday) {
         adjacent = stay;
       } else if (stay.start == tomorrow) {
         adjacent ??= stay;
       }
     }
-    if (adjacent != null) {
-      final original = adjacent;
-      final notes = trimmed.isEmpty
-          ? original.notes
-          : (original.notes.isEmpty ? trimmed : '${original.notes}\n$trimmed');
-      final extended = original.end == yesterday
-          ? original.copyWith(end: date, notes: notes)
-          : original.copyWith(start: date, notes: notes);
-      final failure = await saveStay(extended);
-      if (failure != null) return TodayWriteResult(failure: failure);
-      return TodayWriteResult(extended: true, undo: () => saveStay(original));
+
+    final elsewhere = todayStaysElsewhere(country);
+    if (elsewhere.isNotEmpty && !replaceOthers) {
+      return TodayWriteResult(staysElsewhere: elsewhere);
     }
-    final before = stays.map((item) => item.id).toSet();
-    final failure = await saveStay(
-      Stay(
-        id: '',
-        countryCode: country,
-        start: date,
-        end: date,
-        role: PresenceRole.primary,
-        evidenceStatus: 'confirmed',
-        inference: InferenceKind.none,
-        phase: TripPhase.actual,
-        timezone: 'Etc/UTC',
-        notes: trimmed,
-        source: RecordSource.manual,
-      ),
-    );
-    if (failure != null) return TodayWriteResult(failure: failure);
-    final created = stays
-        .where((item) => item.id.isNotEmpty && !before.contains(item.id))
-        .toList();
+    if (covered && elsewhere.isEmpty) {
+      return const TodayWriteResult(alreadySaved: true);
+    }
+
+    final undoSteps = <Future<String?> Function()>[];
+    Future<String?> undoAll() async {
+      String? first;
+      for (final step in undoSteps.reversed) {
+        final failure = await step();
+        first ??= failure;
+      }
+      return first;
+    }
+
+    Future<String?> createAndTrack(Stay stay) async {
+      final before = stays.map((item) => item.id).toSet();
+      final failure = await saveStay(stay);
+      if (failure != null) return failure;
+      final created = stays
+          .where((item) => item.id.isNotEmpty && !before.contains(item.id))
+          .toList();
+      if (created.length == 1) {
+        final id = created.single.id;
+        undoSteps.add(() => deleteStay(id));
+      }
+      return null;
+    }
+
+    Future<TodayWriteResult> fail(String failure) async {
+      await undoAll();
+      return TodayWriteResult(failure: failure);
+    }
+
+    for (final original in elsewhere) {
+      String? failure;
+      if (original.start == date && original.end == date) {
+        failure = await deleteStay(original.id);
+        if (failure == null) {
+          undoSteps.add(() => saveStay(original.copyWith(id: '')));
+        }
+      } else if (original.start == date) {
+        failure = await saveStay(original.copyWith(start: tomorrow));
+        if (failure == null) undoSteps.add(() => saveStay(original));
+      } else if (original.end == date) {
+        failure = await saveStay(original.copyWith(end: yesterday));
+        if (failure == null) undoSteps.add(() => saveStay(original));
+      } else {
+        failure = await saveStay(original.copyWith(end: yesterday));
+        if (failure == null) {
+          undoSteps.add(() => saveStay(original));
+          failure = await createAndTrack(
+            original.copyWith(id: '', start: tomorrow, externalId: ''),
+          );
+        }
+      }
+      if (failure != null) return fail(failure);
+    }
+
+    var extended = false;
+    if (!covered) {
+      if (adjacent != null) {
+        final original = adjacent;
+        final notes = trimmed.isEmpty
+            ? original.notes
+            : (original.notes.isEmpty
+                  ? trimmed
+                  : '${original.notes}\n$trimmed');
+        final grown = original.end == yesterday
+            ? original.copyWith(end: date, notes: notes)
+            : original.copyWith(start: date, notes: notes);
+        final failure = await saveStay(grown);
+        if (failure != null) return fail(failure);
+        undoSteps.add(() => saveStay(original));
+        extended = true;
+      } else {
+        final failure = await createAndTrack(
+          Stay(
+            id: '',
+            countryCode: country,
+            start: date,
+            end: date,
+            role: PresenceRole.primary,
+            evidenceStatus: 'confirmed',
+            inference: InferenceKind.none,
+            phase: TripPhase.actual,
+            timezone: 'Etc/UTC',
+            notes: trimmed,
+            source: RecordSource.manual,
+          ),
+        );
+        if (failure != null) return fail(failure);
+      }
+    }
     return TodayWriteResult(
-      undo: created.length == 1 ? () => deleteStay(created.single.id) : null,
+      extended: extended,
+      replaced: elsewhere,
+      undo: undoSteps.isEmpty ? null : undoAll,
     );
+  }
+
+  /// The country of the current connection, from [whereLookup]. A hint only.
+  String? connectionCountry;
+  final Set<String> _dismissedConnection = <String>{};
+
+  /// Asks for the connection's country. Failures leave it unknown.
+  Future<void> checkConnectionCountry() async {
+    final code = await whereLookup.country();
+    if (code == connectionCountry) return;
+    connectionCountry = code;
+    notifyListeners();
+  }
+
+  /// The connection's country when it is worth offering for today: today
+  /// is unknown or in transit, or today's country is a different one.
+  /// Null on a conflict day, where one more country would not settle it.
+  String? get connectionOffer {
+    final code = connectionCountry;
+    if (code == null || !canEdit) return null;
+    final presence = today;
+    if (_dismissedConnection.contains('${presence.date.iso}|$code')) {
+      return null;
+    }
+    return switch (presence.status) {
+      TodayStatus.confirmed || TodayStatus.fromFlights =>
+        presence.countryCode == code ? null : code,
+      TodayStatus.inTransit || TodayStatus.unknown => code,
+      TodayStatus.conflict => null,
+    };
+  }
+
+  /// Hides the offer for this country for the rest of today.
+  void dismissConnectionOffer() {
+    final code = connectionCountry;
+    if (code == null) return;
+    _dismissedConnection.add('${clock().iso}|$code');
+    notifyListeners();
   }
 
   /// Inferred primary mornings in this window that are not already in the
@@ -234,6 +369,7 @@ class AppController extends ChangeNotifier {
     statusMessage = 'Example dataset. These fictional rows stay in this tab and are not sent to PocketBase.';
     _clearGmailSession();
     notifyListeners();
+    unawaited(checkConnectionCountry());
   }
 
   void leaveExample() {
@@ -396,6 +532,8 @@ class AppController extends ChangeNotifier {
 
   void signOut() {
     final origin = instanceOrigin ?? gateway.savedOrigin();
+    connectionCountry = null;
+    _dismissedConnection.clear();
     gateway.signOut();
     kind = SessionKind.unconfigured;
     stays = [];
@@ -900,6 +1038,7 @@ class AppController extends ChangeNotifier {
   }
 
   void _applySnapshot(TravelSnapshot snapshot) {
+    unawaited(checkConnectionCountry());
     kind = SessionKind.connected;
     stays = snapshot.stays;
     flights = snapshot.flights;
@@ -995,6 +1134,8 @@ class TodayWriteResult {
     this.undo,
     this.extended = false,
     this.alreadySaved = false,
+    this.staysElsewhere = const [],
+    this.replaced = const [],
   });
 
   final String? failure;
@@ -1007,4 +1148,14 @@ class TodayWriteResult {
 
   /// True when a confirmed stay already covered today, so nothing changed.
   final bool alreadySaved;
+
+  /// Counting stays elsewhere that cover today. When this is not empty and
+  /// [replaced] is, nothing was written: ask, then save with replaceOthers.
+  final List<Stay> staysElsewhere;
+
+  /// Stays that today was taken out of.
+  final List<Stay> replaced;
+
+  /// True when the caller must confirm before anything is written.
+  bool get needsConfirmation => staysElsewhere.isNotEmpty;
 }

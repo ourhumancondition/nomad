@@ -7,6 +7,7 @@ import 'country_presence.dart';
 import 'format.dart';
 import 'missing_page.dart';
 import 'theme.dart';
+import 'today_actions.dart';
 import 'today_banner.dart';
 
 class DaysPage extends StatefulWidget {
@@ -34,34 +35,10 @@ class DaysPage extends StatefulWidget {
 }
 
 class _DaysPageState extends State<DaysPage> {
-  final _scroll = ScrollController();
-  final _bannerKey = GlobalKey();
-  bool _compact = false;
   bool _saving = false;
 
   AppController get controller => widget.controller;
   bool get rolling => widget.rolling;
-
-  @override
-  void initState() {
-    super.initState();
-    _scroll.addListener(_onScroll);
-  }
-
-  @override
-  void dispose() {
-    _scroll.removeListener(_onScroll);
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  /// The slim bar overlays the list, so showing it never changes the
-  /// list's height and cannot bounce the scroll position.
-  void _onScroll() {
-    final height = _bannerKey.currentContext?.size?.height ?? 160;
-    final next = _scroll.offset > height;
-    if (next != _compact) setState(() => _compact = next);
-  }
 
   List<String> _recentCountries() {
     final dated = <MapEntry<String, int>>[];
@@ -85,56 +62,9 @@ class _DaysPageState extends State<DaysPage> {
   }
 
   Future<void> _save(String country, {String note = ''}) async {
-    final messenger = ScaffoldMessenger.of(context);
     setState(() => _saving = true);
-    final result = await controller.saveTodayStay(country, note: note);
-    if (!mounted) return;
-    setState(() => _saving = false);
-    messenger.clearSnackBars();
-    if (result.failure != null) {
-      messenger.showSnackBar(
-        SnackBar(content: Text('Couldn\'t save today. ${result.failure}')),
-      );
-      return;
-    }
-    if (result.alreadySaved) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Today is already confirmed in ${countryName(country)}.',
-          ),
-        ),
-      );
-      return;
-    }
-    final undo = result.undo;
-    messenger.showSnackBar(
-      SnackBar(
-        key: const Key('today-saved'),
-        duration: const Duration(seconds: 5),
-        // An action would otherwise keep the snackbar up until tapped.
-        persist: false,
-        content: Text(
-          result.extended
-              ? 'Added today to your ${countryName(country)} stay.'
-              : 'Saved today as ${countryName(country)}.',
-        ),
-        action: undo == null
-            ? null
-            : SnackBarAction(
-                key: const Key('today-undo'),
-                label: 'Undo',
-                onPressed: () async {
-                  final failure = await undo();
-                  if (failure != null) {
-                    messenger.showSnackBar(
-                      const SnackBar(content: Text('Couldn\'t undo that.')),
-                    );
-                  }
-                },
-              ),
-      ),
-    );
+    await saveTodayWithUndo(context, controller, country, note: note);
+    if (mounted) setState(() => _saving = false);
   }
 
   Future<void> _elsewhere(TodayPresence today) async {
@@ -183,10 +113,9 @@ class _DaysPageState extends State<DaysPage> {
         ? 'This year has not started.'
         : '${shortDate(presence.start!)} – ${shortDate(presence.end!)}';
     final list = ListView(
-      controller: _scroll,
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
       children: [
-        KeyedSubtree(key: _bannerKey, child: banner),
+        banner,
         const SizedBox(height: 20),
         Text(
           'Days by country',
@@ -276,39 +205,7 @@ class _DaysPageState extends State<DaysPage> {
         ),
       ],
     );
-    return Stack(
-      children: [
-        list,
-        if (!controller.restoring)
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: ExcludeSemantics(
-              excluding: !_compact || controller.restoring,
-              child: IgnorePointer(
-                ignoring: !_compact || controller.restoring,
-                child: AnimatedSlide(
-                  offset: _compact ? Offset.zero : const Offset(0, -1),
-                  duration: const Duration(milliseconds: 180),
-                  child: AnimatedOpacity(
-                    opacity: _compact && !controller.restoring ? 1 : 0,
-                    duration: const Duration(milliseconds: 180),
-                    child: TodayCompactBar(
-                      presence: today,
-                      onTap: () => _scroll.animateTo(
-                        0,
-                        duration: const Duration(milliseconds: 250),
-                        curve: Curves.easeOut,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
-    );
+    return list;
   }
 }
 
