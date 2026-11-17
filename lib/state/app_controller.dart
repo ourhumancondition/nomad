@@ -14,6 +14,7 @@ import '../engine/gmail_fixtures.dart';
 import '../engine/gmail_receipts.dart';
 import '../engine/local_date.dart';
 import '../engine/models.dart';
+import '../engine/today_presence.dart';
 import '../platform/browser_location.dart';
 
 enum SessionKind { unconfigured, example, connected }
@@ -113,6 +114,86 @@ class AppController extends ChangeNotifier {
     rules: rules,
     statuses: statuses,
   );
+
+  /// Today's country, read from the same engine as the year totals.
+  TodayPresence get today => resolveTodayOn(
+    clock(),
+    stays: stays,
+    flights: flights,
+    rules: rules,
+    statuses: statuses,
+  );
+
+  /// Records that the traveler woke up in [country] today.
+  ///
+  /// Extends an adjacent confirmed, observed stay in the same country by one
+  /// day, or saves a new confirmed stay for today only. Goes through
+  /// [saveStay], so the same API rules apply. Never touches flights and
+  /// never uses flight proposals. Returns an undo that reverses only this
+  /// write.
+  Future<TodayWriteResult> saveTodayStay(
+    String country, {
+    String note = '',
+  }) async {
+    if (!RegExp(r'^[A-Z]{2}$').hasMatch(country)) {
+      return const TodayWriteResult(failure: 'Choose a country.');
+    }
+    final date = clock();
+    final yesterday = date.addDays(-1);
+    final tomorrow = date.addDays(1);
+    final trimmed = note.trim();
+    Stay? adjacent;
+    for (final stay in stays) {
+      if (stay.phase != TripPhase.actual) continue;
+      if (stay.role != PresenceRole.primary) continue;
+      if (stay.countryCode != country) continue;
+      if (stay.evidenceStatus != 'confirmed') continue;
+      if (stay.inference.isInference) continue;
+      if (stay.covers(date)) {
+        return const TodayWriteResult(alreadySaved: true);
+      }
+      if (stay.end == yesterday) {
+        adjacent = stay;
+      } else if (stay.start == tomorrow) {
+        adjacent ??= stay;
+      }
+    }
+    if (adjacent != null) {
+      final original = adjacent;
+      final notes = trimmed.isEmpty
+          ? original.notes
+          : (original.notes.isEmpty ? trimmed : '${original.notes}\n$trimmed');
+      final extended = original.end == yesterday
+          ? original.copyWith(end: date, notes: notes)
+          : original.copyWith(start: date, notes: notes);
+      final failure = await saveStay(extended);
+      if (failure != null) return TodayWriteResult(failure: failure);
+      return TodayWriteResult(extended: true, undo: () => saveStay(original));
+    }
+    final before = stays.map((item) => item.id).toSet();
+    final failure = await saveStay(
+      Stay(
+        id: '',
+        countryCode: country,
+        start: date,
+        end: date,
+        role: PresenceRole.primary,
+        evidenceStatus: 'confirmed',
+        inference: InferenceKind.none,
+        phase: TripPhase.actual,
+        timezone: 'Etc/UTC',
+        notes: trimmed,
+        source: RecordSource.manual,
+      ),
+    );
+    if (failure != null) return TodayWriteResult(failure: failure);
+    final created = stays
+        .where((item) => item.id.isNotEmpty && !before.contains(item.id))
+        .toList();
+    return TodayWriteResult(
+      undo: created.length == 1 ? () => deleteStay(created.single.id) : null,
+    );
+  }
 
   /// Inferred primary mornings in this window that are not already in the
   /// wake-up total. A morning counted from a qualifying flight bracket is
@@ -905,4 +986,25 @@ class AppController extends ChangeNotifier {
         : ' Accepted from flight ${flight.flightNumber}.';
     return '$proposalNote$booking';
   }
+}
+
+/// Outcome of [AppController.saveTodayStay].
+class TodayWriteResult {
+  const TodayWriteResult({
+    this.failure,
+    this.undo,
+    this.extended = false,
+    this.alreadySaved = false,
+  });
+
+  final String? failure;
+
+  /// Reverses the write. Null when nothing was written.
+  final Future<String?> Function()? undo;
+
+  /// True when an adjacent stay grew by one day instead of a new stay.
+  final bool extended;
+
+  /// True when a confirmed stay already covered today, so nothing changed.
+  final bool alreadySaved;
 }

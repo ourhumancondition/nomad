@@ -165,6 +165,7 @@ class _Shell extends StatelessWidget {
         onRolling: onRolling,
         onFillUnknown: () => onSelect(Section.missing),
         onConfirmTrips: () => onSelect(Section.trips),
+        onOpenStays: () => onSelect(Section.stays),
       ),
       Section.calendar => CalendarPage(controller: controller),
       Section.records => RecordsPage(onOpen: onSelect),

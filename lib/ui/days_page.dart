@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 
+import '../data/countries.dart';
+import '../engine/today_presence.dart';
 import '../state/app_controller.dart';
 import 'country_presence.dart';
 import 'format.dart';
 import 'missing_page.dart';
 import 'theme.dart';
+import 'today_banner.dart';
 
-class DaysPage extends StatelessWidget {
+class DaysPage extends StatefulWidget {
   const DaysPage({
     super.key,
     required this.controller,
@@ -14,6 +17,7 @@ class DaysPage extends StatelessWidget {
     required this.onRolling,
     required this.onFillUnknown,
     required this.onConfirmTrips,
+    this.onOpenStays,
   });
 
   final AppController controller;
@@ -22,8 +26,138 @@ class DaysPage extends StatelessWidget {
   final VoidCallback onFillUnknown;
   final VoidCallback onConfirmTrips;
 
+  /// Opens the stored stays, for a conflict on today.
+  final VoidCallback? onOpenStays;
+
+  @override
+  State<DaysPage> createState() => _DaysPageState();
+}
+
+class _DaysPageState extends State<DaysPage> {
+  final _scroll = ScrollController();
+  final _bannerKey = GlobalKey();
+  bool _compact = false;
+  bool _saving = false;
+
+  AppController get controller => widget.controller;
+  bool get rolling => widget.rolling;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_onScroll);
+  }
+
+  @override
+  void dispose() {
+    _scroll.removeListener(_onScroll);
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// The slim bar overlays the list, so showing it never changes the
+  /// list's height and cannot bounce the scroll position.
+  void _onScroll() {
+    final height = _bannerKey.currentContext?.size?.height ?? 160;
+    final next = _scroll.offset > height;
+    if (next != _compact) setState(() => _compact = next);
+  }
+
+  List<String> _recentCountries() {
+    final dated = <MapEntry<String, int>>[];
+    for (final stay in controller.stays) {
+      if (stay.countryCode.isEmpty) continue;
+      dated.add(MapEntry(stay.countryCode, stay.end.ordinal));
+    }
+    for (final flight in controller.flights) {
+      dated.add(MapEntry(flight.toCountry, flight.arrive.date.ordinal));
+      dated.add(MapEntry(flight.fromCountry, flight.depart.date.ordinal));
+    }
+    dated.sort((a, b) => b.value.compareTo(a.value));
+    final seen = <String>[];
+    for (final entry in dated) {
+      if (!countryNames.containsKey(entry.key)) continue;
+      if (seen.contains(entry.key)) continue;
+      seen.add(entry.key);
+      if (seen.length == 6) break;
+    }
+    return seen;
+  }
+
+  Future<void> _save(String country, {String note = ''}) async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _saving = true);
+    final result = await controller.saveTodayStay(country, note: note);
+    if (!mounted) return;
+    setState(() => _saving = false);
+    messenger.clearSnackBars();
+    if (result.failure != null) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('Couldn\'t save today. ${result.failure}')),
+      );
+      return;
+    }
+    if (result.alreadySaved) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Today is already confirmed in ${countryName(country)}.',
+          ),
+        ),
+      );
+      return;
+    }
+    final undo = result.undo;
+    messenger.showSnackBar(
+      SnackBar(
+        key: const Key('today-saved'),
+        duration: const Duration(seconds: 5),
+        // An action would otherwise keep the snackbar up until tapped.
+        persist: false,
+        content: Text(
+          result.extended
+              ? 'Added today to your ${countryName(country)} stay.'
+              : 'Saved today as ${countryName(country)}.',
+        ),
+        action: undo == null
+            ? null
+            : SnackBarAction(
+                key: const Key('today-undo'),
+                label: 'Undo',
+                onPressed: () async {
+                  final failure = await undo();
+                  if (failure != null) {
+                    messenger.showSnackBar(
+                      const SnackBar(content: Text('Couldn\'t undo that.')),
+                    );
+                  }
+                },
+              ),
+      ),
+    );
+  }
+
+  Future<void> _elsewhere(TodayPresence today) async {
+    final choice = await showTodayElsewhereSheet(
+      context,
+      recentCountries: _recentCountries(),
+    );
+    if (choice == null || !mounted) return;
+    await _save(choice.country, note: choice.note);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final today = controller.today;
+    final Widget banner = controller.restoring
+        ? const TodayBannerSkeleton()
+        : TodayBanner(
+            presence: today,
+            saving: _saving || controller.busy,
+            onConfirm: (code) => _save(code),
+            onElsewhere: () => _elsewhere(today),
+            onOpenConflicts: widget.onOpenStays,
+          );
     final presence = summarizePresence(
       stays: controller.stays,
       flights: controller.flights,
@@ -48,9 +182,12 @@ class DaysPage extends StatelessWidget {
     final period = !presence.hasWindow
         ? 'This year has not started.'
         : '${shortDate(presence.start!)} – ${shortDate(presence.end!)}';
-    return ListView(
+    final list = ListView(
+      controller: _scroll,
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
       children: [
+        KeyedSubtree(key: _bannerKey, child: banner),
+        const SizedBox(height: 20),
         Text(
           'Days by country',
           key: const Key('days-title'),
@@ -61,7 +198,7 @@ class DaysPage extends StatelessWidget {
         _PeriodBar(
           controller: controller,
           rolling: rolling,
-          onRolling: onRolling,
+          onRolling: widget.onRolling,
         ),
         const SizedBox(height: 6),
         Text(period, style: const TextStyle(color: Color(0xFF5C564E))),
@@ -91,7 +228,7 @@ class DaysPage extends StatelessWidget {
                 const SizedBox(height: 10),
                 FilledButton(
                   key: const Key('fill-unknown'),
-                  onPressed: onFillUnknown,
+                  onPressed: widget.onFillUnknown,
                   child: const Text('Fill these in'),
                 ),
               ],
@@ -117,7 +254,7 @@ class DaysPage extends StatelessWidget {
                 const SizedBox(height: 10),
                 FilledButton(
                   key: const Key('confirm-trips'),
-                  onPressed: onConfirmTrips,
+                  onPressed: widget.onConfirmTrips,
                   child: const Text('Review trips'),
                 ),
               ],
@@ -137,6 +274,39 @@ class DaysPage extends StatelessWidget {
           'This is a count of days, not a tax or immigration answer.',
           style: TextStyle(color: Color(0xFF5C564E)),
         ),
+      ],
+    );
+    return Stack(
+      children: [
+        list,
+        if (!controller.restoring)
+          Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: ExcludeSemantics(
+              excluding: !_compact || controller.restoring,
+              child: IgnorePointer(
+                ignoring: !_compact || controller.restoring,
+                child: AnimatedSlide(
+                  offset: _compact ? Offset.zero : const Offset(0, -1),
+                  duration: const Duration(milliseconds: 180),
+                  child: AnimatedOpacity(
+                    opacity: _compact && !controller.restoring ? 1 : 0,
+                    duration: const Duration(milliseconds: 180),
+                    child: TodayCompactBar(
+                      presence: today,
+                      onTap: () => _scroll.animateTo(
+                        0,
+                        duration: const Duration(milliseconds: 250),
+                        curve: Curves.easeOut,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
