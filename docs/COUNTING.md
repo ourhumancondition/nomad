@@ -72,7 +72,7 @@ Proposals are created as inferences with evidence status `inferred`, so they do 
 
 ## Today
 
-The banner at the top of the Days page answers one question: which country is today counted in? Today is the browser’s local calendar date. A UTC clock reading is converted to local time first, so a late evening does not slide into tomorrow.
+The top bar on every signed-in page, and the banner at the top of the Days page, answer one question: which country is today counted in? Tapping the top bar opens the Days page. Today is the browser’s local calendar date. A UTC clock reading is converted to local time first, so a late evening does not slide into tomorrow.
 
 The banner does not count anything itself. `resolveTodayOn` in `lib/engine/today_presence.dart` runs the same `DayEngine.tally` the year totals use, for the year that contains today, and reads today’s entry. Today therefore follows every rule above: the wake time, in-transit wake-ups, booking-only records that do not count, and flight brackets.
 
@@ -90,5 +90,12 @@ Resolving today writes nothing. Two taps can write:
 
 - **Yes, I’m here** saves a confirmed, observed stay for today only. If a confirmed stay in the same country ends yesterday or starts tomorrow, that stay grows by one day instead.
 - **I’m somewhere else** does the same for the country you pick, with an optional note.
+- **Set today to …** in the top bar does the same for the country of your internet connection (below).
 
-Both writes go through the normal stay save for the signed-in traveler, and both can be undone for 5 seconds. Neither edits flights, and neither uses flight proposals or Accept.
+If a counting stay in another country already covers today, the app asks first. If you agree, today is taken out of that stay. A stay that was today only is removed. A stay that starts or ends today is shortened by a day. A stay running through today is split into the days before and the days after. The other days are not changed, so today does not turn into a two-country conflict.
+
+These writes go through the normal stay save for the signed-in traveler. One Undo, available for 5 seconds, reverses every step of the write. None of them edits flights or uses flight proposals or Accept.
+
+### Connection country
+
+After sign-in the app asks its own `/api/where` function for the country of the current internet connection. The answer is offered under the top bar when today is unknown, when today is in transit, or when today’s country is a different one. A conflict day gets no offer, because a third country would not settle it. The offer says it comes from the connection, since a VPN or a roaming SIM can show another country. Nothing is saved until you tap **Set today to …**. **Not now** hides it for the rest of the day. The connection country is never counted on its own and never stored.

@@ -38,3 +38,7 @@ The migration was applied only to disposable local data directories by `tool/aut
 OAuth and Gmail fetches run in Vercel functions under `/api/gmail/`. The refresh token is encrypted there and stored in PocketBase `gmail_links.token_ciphertext`. That collection’s API rules are locked. `pb_hooks/gmail_vault.pb.js` returns the ciphertext only to a caller that presents `NOMAD_VAULT_SECRET`, and only for `e.auth.id`. The Flutter client previews parsed legs and does not receive the refresh token. Receipt bodies are not written to flight rows.
 
 `pb_migrations/1795000000_gmail_import.js` is additive. It was not applied to https://nomad.pockethost.io. Apply steps are in [GMAIL.md](GMAIL.md).
+
+## Connection country
+
+`GET /api/where` (`api/where.js`, logic in `location_broker/where.js`) returns `{"country": "PH"}` or `{"country": null}`. It reads only the two-letter `x-vercel-ip-country` header that Vercel’s edge adds to every request. It does not read, return, log, or store the IP address, city, region, or coordinates, and it calls no third-party geolocation service. The response is `Cache-Control: no-store`. Off Vercel, for example in local development, the header is absent and the answer is null, so no offer is shown. The client accepts only a code in `lib/data/countries.dart`.
