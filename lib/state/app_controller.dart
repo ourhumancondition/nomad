@@ -17,6 +17,7 @@ import '../engine/gmail_fixtures.dart';
 import '../engine/gmail_receipts.dart';
 import '../engine/local_date.dart';
 import '../engine/models.dart';
+import '../engine/review_queue.dart';
 import '../engine/today_presence.dart';
 import '../platform/browser_location.dart';
 
@@ -35,8 +36,7 @@ class AppController extends ChangeNotifier {
        gateway = gateway ?? PocketBaseGateway(),
        allowLocalEndpoints =
            allowLocalEndpoints ??
-           (kDebugMode ||
-               const bool.fromEnvironment('ALLOW_LOCAL_POCKETBASE')),
+           (kDebugMode || const bool.fromEnvironment('ALLOW_LOCAL_POCKETBASE')),
        gmail = gmail ?? HttpGmailClient(),
        openAuthorizeUrl = openAuthorizeUrl ?? assignBrowserLocation {
     year = this.clock().year;
@@ -315,8 +315,8 @@ class AppController extends ChangeNotifier {
       return null;
     }
     return switch (presence.status) {
-      TodayStatus.confirmed || TodayStatus.fromFlights =>
-        presence.countryCode == code ? null : code,
+      TodayStatus.confirmed ||
+      TodayStatus.fromFlights => presence.countryCode == code ? null : code,
       TodayStatus.inTransit || TodayStatus.unknown => code,
       TodayStatus.conflict => null,
     };
@@ -709,6 +709,95 @@ class AppController extends ChangeNotifier {
     return saveFlight(flight.copyWith(reviewState: FlightReviewState.rejected));
   }
 
+  /// Confirms a stay that was waiting on a decision.
+  ///
+  /// Sets evidence to confirmed. A planned stay becomes actual. A different
+  /// country that already counts on those dates is trimmed so the morning
+  /// has one country. The inference mark is left as stored.
+  Future<String?> confirmStay(Stay stay) async {
+    final next = stay.copyWith(
+      evidenceStatus: 'confirmed',
+      phase: TripPhase.actual,
+    );
+    final problem = validateStay(next);
+    if (problem != null) return problem;
+    if (!canEdit) {
+      return 'Open the example dataset or a per-user database before saving.';
+    }
+    final carve = carveConflictingStays(
+      incoming: next,
+      stays: stays,
+      rules: rules,
+      statuses: statuses,
+    );
+    final undoSteps = <Future<String?> Function()>[];
+    Future<String?> undoAll() async {
+      String? first;
+      for (final step in undoSteps.reversed) {
+        final failure = await step();
+        first ??= failure;
+      }
+      return first;
+    }
+
+    Future<String?> fail(String failure) async {
+      final undoFailure = await undoAll();
+      if (undoFailure == null) return failure;
+      return '$failure $undoFailure';
+    }
+
+    Future<String?> createAndTrack(Stay row) async {
+      final before = stays.map((item) => item.id).toSet();
+      final failure = await saveStay(row);
+      if (failure != null) return failure;
+      final created = stays
+          .where((item) => item.id.isNotEmpty && !before.contains(item.id))
+          .toList();
+      if (created.length == 1) {
+        final id = created.single.id;
+        undoSteps.add(() => deleteStay(id));
+      }
+      return null;
+    }
+
+    for (final id in carve.deleteIds) {
+      Stay? original;
+      for (final item in stays) {
+        if (item.id == id) original = item;
+      }
+      if (original == null) continue;
+      final failure = await deleteStay(id);
+      if (failure != null) return fail(failure);
+      final snapshot = original;
+      undoSteps.add(() => saveStay(snapshot.copyWith(id: '')));
+    }
+    for (final row in carve.save) {
+      if (row.id.isEmpty) {
+        final failure = await createAndTrack(row);
+        if (failure != null) return fail(failure);
+        continue;
+      }
+      Stay? original;
+      for (final item in stays) {
+        if (item.id == row.id) original = item;
+      }
+      final failure = await saveStay(row);
+      if (failure != null) return fail(failure);
+      if (original != null) {
+        final snapshot = original;
+        undoSteps.add(() => saveStay(snapshot));
+      }
+    }
+    final failure = await saveStay(next);
+    if (failure != null) return fail(failure);
+    return null;
+  }
+
+  /// Leaves an inferred stay out of the total without deleting it.
+  Future<String?> dismissStay(Stay stay) {
+    return saveStay(stay.copyWith(evidenceStatus: 'unknown'));
+  }
+
   /// Saves inferred between-flight stays. Does not change the counting rule
   /// and does not rewrite a stay the traveler entered.
   Future<String?> saveBetweenFlightPlan() async {
@@ -833,8 +922,7 @@ class AppController extends ChangeNotifier {
 
   void noteGmailReturn(String code) {
     gmailNotice = switch (code) {
-      'connected' =>
-        'Gmail is connected for read-only receipt search. Nothing has been imported.',
+      'connected' => 'Gmail is connected for read-only receipt search. Nothing has been imported.',
       'denied' => 'Gmail was not connected. No mailbox was read.',
       'scope' =>
         'Google offered more than read-only Gmail. Nothing was stored.',

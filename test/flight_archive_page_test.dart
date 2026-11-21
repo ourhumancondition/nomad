@@ -13,7 +13,7 @@ void main() {
     WidgetTester tester, {
     bool fixture = true,
   }) async {
-    tester.view.physicalSize = const Size(1280, 2400);
+    tester.view.physicalSize = const Size(1280, 5200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -55,7 +55,18 @@ void main() {
     final beforeTally = Map<String, int>.of(controller.tally.primaryDays);
     final beforeStays = controller.stays.length;
 
-    expect(find.text('Still to review (5)'), findsOneWidget);
+    expect(find.byKey(const Key('review-count')), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byKey(const Key('review-count')),
+              matching: find.byType(Text),
+            ),
+          )
+          .data,
+      '7',
+    );
     await reveal(tester, find.text('Archived (8)'));
     expect(find.text('Archived (8)'), findsOneWidget);
     expect(find.textContaining('NA311'), findsWidgets);
@@ -73,7 +84,7 @@ void main() {
     expect(find.byKey(const Key('flight-card-fixture-na201')), findsOneWidget);
     await reveal(tester, find.byKey(const Key('flight-card-fixture-na500')));
     expect(find.byKey(const Key('flight-card-fixture-na500')), findsOneWidget);
-    expect(find.textContaining('· Accepted'), findsWidgets);
+    expect(find.textContaining('Already checked'), findsWidgets);
 
     await reveal(tester, find.byKey(const Key('unarchive-fixture-na201')));
     await tester.tap(find.byKey(const Key('unarchive-fixture-na201')));
