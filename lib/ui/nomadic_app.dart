@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../engine/review_queue.dart';
 import '../platform/browser_location.dart';
 import '../state/app_controller.dart';
 import 'calendar_page.dart';
@@ -167,10 +168,17 @@ class _Shell extends StatelessWidget {
         onRolling: onRolling,
         onFillUnknown: () => onSelect(Section.missing),
         onConfirmTrips: () => onSelect(Section.trips),
+        onOpenReview: () => onSelect(Section.flights),
         onOpenStays: () => onSelect(Section.stays),
       ),
       Section.calendar => CalendarPage(controller: controller),
-      Section.records => RecordsPage(onOpen: onSelect),
+      Section.records => RecordsPage(
+        onOpen: onSelect,
+        toCheck: reviewQueueCount(
+          flights: controller.flights,
+          stays: controller.stays,
+        ),
+      ),
       Section.missing => MissingPage(controller: controller, rolling: rolling),
       Section.trips => TripsPage(controller: controller, rolling: rolling),
       Section.summary => SummaryPage(controller: controller),

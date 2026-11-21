@@ -3,9 +3,10 @@ import 'package:flutter/material.dart';
 import 'section.dart';
 
 class RecordsPage extends StatelessWidget {
-  const RecordsPage({super.key, required this.onOpen});
+  const RecordsPage({super.key, required this.onOpen, this.toCheck = 0});
 
   final ValueChanged<Section> onOpen;
+  final int toCheck;
 
   @override
   Widget build(BuildContext context) {
@@ -30,8 +31,11 @@ class RecordsPage extends StatelessWidget {
         ),
         _Link(
           key: const Key('open-flights'),
-          title: 'Flights',
-          detail: 'Tickets, and a preview of the days between them.',
+          title: 'To check',
+          detail: toCheck == 0
+              ? 'Flights and stays that still need a decision.'
+              : '$toCheck flights and stays still need a decision.',
+          badge: toCheck == 0 ? null : toCheck,
           onTap: () => onOpen(Section.flights),
         ),
         _Link(
@@ -81,11 +85,13 @@ class _Link extends StatelessWidget {
     required this.title,
     required this.detail,
     required this.onTap,
+    this.badge,
   });
 
   final String title;
   final String detail;
   final VoidCallback onTap;
+  final int? badge;
 
   @override
   Widget build(BuildContext context) {
@@ -97,7 +103,29 @@ class _Link extends StatelessWidget {
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
         ),
         subtitle: Text(detail),
-        trailing: const Icon(Icons.chevron_right),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (badge != null)
+              Container(
+                key: const Key('records-to-check'),
+                margin: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF8C4A32),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  '$badge',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            const Icon(Icons.chevron_right),
+          ],
+        ),
         onTap: onTap,
       ),
     );

@@ -21,6 +21,14 @@ String shortDate(LocalDate date) =>
 String shortClock(WallTime time) =>
     '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
+/// Clock as a person would say it. Dates stay on [shortDate].
+String spokenClock(WallTime time) {
+  final suffix = time.hour < 12 ? 'AM' : 'PM';
+  final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+  final minute = time.minute.toString().padLeft(2, '0');
+  return '$hour:$minute $suffix';
+}
+
 String shortRange(LocalDate start, LocalDate end) =>
     start == end ? shortDate(start) : '${shortDate(start)} – ${shortDate(end)}';
 

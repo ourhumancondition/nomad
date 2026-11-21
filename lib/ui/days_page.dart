@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../data/countries.dart';
+import '../engine/review_queue.dart';
 import '../engine/today_presence.dart';
 import '../state/app_controller.dart';
 import 'country_presence.dart';
 import 'format.dart';
 import 'missing_page.dart';
+import 'review_copy.dart';
 import 'theme.dart';
 import 'today_actions.dart';
 import 'today_banner.dart';
@@ -18,6 +20,7 @@ class DaysPage extends StatefulWidget {
     required this.onRolling,
     required this.onFillUnknown,
     required this.onConfirmTrips,
+    required this.onOpenReview,
     this.onOpenStays,
   });
 
@@ -26,6 +29,7 @@ class DaysPage extends StatefulWidget {
   final ValueChanged<bool> onRolling;
   final VoidCallback onFillUnknown;
   final VoidCallback onConfirmTrips;
+  final VoidCallback onOpenReview;
 
   /// Opens the stored stays, for a conflict on today.
   final VoidCallback? onOpenStays;
@@ -112,6 +116,10 @@ class _DaysPageState extends State<DaysPage> {
     final period = !presence.hasWindow
         ? 'This year has not started.'
         : '${shortDate(presence.start!)} – ${shortDate(presence.end!)}';
+    final toCheck = reviewQueueCount(
+      flights: controller.flights,
+      stays: controller.stays,
+    );
     final list = ListView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 36),
       children: [
@@ -131,6 +139,32 @@ class _DaysPageState extends State<DaysPage> {
         ),
         const SizedBox(height: 6),
         Text(period, style: const TextStyle(color: Color(0xFF5C564E))),
+        if (toCheck > 0) ...[
+          const SizedBox(height: 12),
+          _Callout(
+            color: const Color(0xFFE7EEF8),
+            border: const Color(0xFFC5D4EA),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  reviewQueueSentence(toCheck),
+                  key: const Key('review-queue-label'),
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                FilledButton(
+                  key: const Key('open-review-queue'),
+                  onPressed: widget.onOpenReview,
+                  child: const Text('Check them'),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 18),
         Text(
           '${presence.knownDays} ${presence.knownDays == 1 ? 'day' : 'days'} in a country',
